@@ -9,7 +9,7 @@ We have two kind of rbots:
 - UB custom made **rUBot_mecanum**
 - Commercial **LIMO** robot
 
-![](./Images/01_Setup/rUBot_Limo.png)
+![](./Images/01_Setup/rUBot_Limo_ROSbot.png)
 
 Webgraphy:
 - Webgraphy:
@@ -24,6 +24,9 @@ Webgraphy:
 - [ROS1 course A. Brandi](https://github.com/AntoBrandi/Self-Driving-and-ROS-Learn-by-Doing-Odometry-Control)
 - [Arduino-bot course A. Brandi](https://github.com/AntoBrandi/Arduino-Bot/tree/humble)
 - [Projecte TFG Matthew Ayete](https://github.com/Mattyete/ROS2_LIMO_ws/blob/main/Documentation/LIMO_Manual.md)
+- [ROSbot Husarion](https://husarion.com/)
+- [ROSbot Husarion Tutorials](https://husarion.com/tutorials/)
+- [ROSbot Husarion github](https://github.com/husarion/rosbot_ros/tree/humble)
 
 
 ## **1. Setup the robot project in virtual environment for simulation**
