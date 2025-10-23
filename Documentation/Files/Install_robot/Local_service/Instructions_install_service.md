@@ -54,7 +54,9 @@ ros2 run demo_nodes_cpp talker
 ````
 ## 2. Set Up Systemd Service: my_robot.service
 This service will launch your bringup automatically on boot.
-
+### Copy files to home directory
+- setup_my_robot_service.sh
+- start_robot.sh
 ### 🛠️ Run the setup script:
 ````bash
 chmod +x setup_my_robot_service.sh
@@ -66,37 +68,16 @@ This script will:
 
 - Enable the service so it runs on boot
 
-- Use this configuration:
-
-````ini
-[Unit]
-Description=rubot_bringup_service
-Wants=network-online.target
-After=network-online.target
-Requires=sys-subsystem-net-devices-wlan0.device
-After=sys-subsystem-net-devices-wlan0.device
-
-[Service]
-ExecStart=/home/ubuntu/start_robot.sh
-WorkingDirectory=/home/ubuntu
-User=ubuntu
-Restart=on-failure
-Environment="DISPLAY=:0"
-Environment="XDG_RUNTIME_DIR=/run/user/1000"
-
-[Install]
-WantedBy=multi-user.target
-````
-💡 The environment variables are needed if you're using graphical tools like rviz2.
-
 ### 📄 start_robot.sh script content
-This file must already exist at /home/ubuntu/start_robot.sh:
+This file must already exist at /home/ubuntu/start_robot.sh.
+
+>Carefull!: Change ROS_DOMAIN_ID=0 to your Group number.
 
 ````bash
 #!/bin/bash
 source /opt/ros/humble/setup.bash
 source /home/ubuntu/ROS2_rUBot_mecanum_ws/install/setup.bash
-ros2 launch my_robot_bringup my_robot_nano_bringup_hw.launch.py
+ros2 launch my_robot_bringup my_robot_bringup_hw.launch.py
 ````
 Make sure it's executable:
 
@@ -175,4 +156,27 @@ Then run:
 export DISPLAY=192.168.1.3:0.0
 rviz2
 ```
-## 3. Add WebSocket server
+## 3. Complete bringup with Rosbridge and webserver
+
+- Save the 3 service files to /etc/systemd/system/:
+    ````bash
+    sudo nano /etc/systemd/system/my_robot.service
+    sudo nano /etc/systemd/system/my_rosbridge.service
+    sudo nano /etc/systemd/system/my_robot_web.service
+    ````
+- Enable and start all services:
+    ```bash
+    sudo systemctl daemon-reload
+    sudo systemctl enable --now my_robot.service my_rosbridge.service my_robot_web.service
+    ````
+- Check status of all services:
+    ```bash
+    systemd-analyze critical-chain my_robot_web.service
+    sudo systemctl status my_robot
+    sudo systemctl status my_rosbridge
+    sudo systemctl status my_robot_web
+    sudo journalctl -u my_robot -f
+    sudo journalctl -u my_rosbridge -f
+    sudo journalctl -u my_robot_web -f
+    ````
+- Reboot and verify all services start automatically
