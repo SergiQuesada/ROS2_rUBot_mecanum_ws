@@ -141,3 +141,6 @@ The updated page should look something like this in Virtual environment:
 
 The updated page should look something like this in Real robot:
 ![](./Images/06_Web/JoyPosCamDashboard_hw.png)
+
+We can also view and control multiple robots from the same dashboard.
+![](./Images/06_Web/Dashboard_2Rob.png)
