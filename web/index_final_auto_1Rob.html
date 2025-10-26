@@ -20,8 +20,8 @@
       margin: 0;
       padding: 20px;
       background-color: var(--page-bg);
-      color: #000;
-    }
+      color: #e6e6e6;
+      }
 
     .connection-form {
       width: 100%;
@@ -48,15 +48,19 @@
     }
     .connection-form button:hover { filter: brightness(0.97); }
 
+    .connection-form button.connected {
+      background: #2ecc71;
+      border-color: #2ecc71;
+      color: #fff;
+    }
+
     /* ======= LAYOUT (desktop/tablet) ======= */
     .dashboard {
       display: grid;
-      grid-template-columns: 1fr 1fr;  /* ⬅️ dues columnes */
+      grid-template-columns: 1fr 1fr;  /* 2 columnes */
       grid-template-areas:
-        "camera joyR"
-        "map    labR"
-        "map    velR"
-        "pos    omegaR";
+        "camera right"     /* fila 1: càmera | panell joystick */
+        "map    pos";      /* fila 2: mapa   | pos/orientació */
       align-items: center;
       justify-items: center;
       gap: var(--gap);
@@ -64,22 +68,48 @@
 
     /* Assignacions d'àrees */
     #camera-feed      { grid-area: camera; }
+    .right-panel      { grid-area: right; }  /* nou contenidor de la columna dreta */
     .map-display      { grid-area: map; }
     .position-display { grid-area: pos; }
-    #joystick_h       { grid-area: joyR; justify-self: start; }
-    .joy-label-right  { grid-area: labR; }
-    .joy-vel-right    { grid-area: velR; }
-    .omega-wrap       { grid-area: omegaR; }
 
-    /* Targetes / caixes */
-    .position-display,
-    .map-display {
-      width: 200px;
-      padding: 10px;
-      background-color: var(--card-bg, #fff);
-      border-radius: 5px;
-      border: 1px solid var(--card-bd, #ccc);
-      color: #111;
+    /* Panell dret: llegenda → joystick → slider → velocitats (apilat i centrat) */
+    .right-panel {
+      display: flex;
+      flex-direction: column;
+      align-items: center;   /* centrat horitzontal */
+      gap: 8px;              /* separació curta entre peces */
+    }
+
+    .joy-legend {
+      font-size: 1rem;
+      font-weight: 700;
+      color: #eee;
+      text-align: center;
+      margin-top: 0;
+    }
+
+    .joy-label {            /* subtítol sota el joystick si el vols mantenir */
+      margin-top: 2px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: #eee;
+      text-align: center;
+    }
+
+    .omega-wrap {
+      display: flex;
+      align-items: center;
+      justify-content: center;  /* centrat sota el joystick */
+      gap: 8px;
+      color: #eee;
+      font-size: 0.95rem;
+      width: 100%;
+    }
+
+    .joy-vel {
+      font-size: 0.9rem;
+      color: #ddd;
+      text-align: center;
     }
 
     /* Mapa més ample però responsiu */
@@ -94,33 +124,6 @@
       position: relative;
       overflow: hidden;
       touch-action: none; /* evita scroll/zoom accidental al mòbil */
-    }
-
-    .joy-label {
-      margin-top: 6px;
-      font-size: 0.95rem;
-      font-weight: 600;
-      color: #eee;
-      text-align: center;
-    }
-
-    .joy-vel {
-      margin-top: 2px;
-      font-size: 0.9rem;
-      color: #ddd;
-      text-align: center;
-    }
-
-    /* Control omega (slider) */
-    .omega-wrap {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      color: #eee;
-      font-size: 0.95rem;
-    }
-    .omega-wrap input[type="range"] {
-      width: 180px;
     }
 
     /* Càmera */
@@ -141,6 +144,7 @@
       border: 1px solid var(--card-bd);
       border-radius: 5px;
       display: block;
+      background-color: #e6e6e6; /* ✅ gris clar de fons per millorar visibilitat */
     }
 
     /* ======= Responsive (mòbil) ======= */
@@ -149,10 +153,7 @@
         grid-template-columns: 1fr;
         grid-template-areas:
           "camera"
-          "joyR"
-          "labR"
-          "velR"
-          "omegaR"
+          "right"
           "map"
           "pos";
         justify-items: center;
@@ -182,39 +183,41 @@
   <div class="connection-form">
     <label for="robotNumber">Robot:</label>
     <input id="robotNumber" type="number" min="1" max="9" value="1" title="Robot number"/>
-    <button onclick="connectToROS()">Connect</button>
+    <button id="connectBtn" onclick="connectToROS()">Connect</button>
   </div>
 
   <div class="dashboard">
-    <!-- Càmera -->
+    <!-- Càmera (esquerra, fila 1) -->
     <img class="image-view" id="camera-feed" alt="Camera Feed" />
 
-    <!-- Joystick dret (únic) -->
-    <div class="joystick-container" id="joystick_h"></div>
-    <div class="joy-label joy-label-right">Omni (Vx + Vy)</div>
-    <div class="joy-vel joy-vel-right">
-      vₓ: <span id="vx">0.00</span> m/s · vᵧ: <span id="vy">0.00</span> m/s
+    <!-- Dreta de la càmera: llegenda → joystick → slider → velocitats -->
+    <aside class="right-panel">
+      <div class="joy-legend">Joystick</div>
+
+      <div class="joystick-container" id="joystick_h"></div>
+
+      <div class="omega-wrap">
+        <label for="omegaSlider">ω𝓏:</label>
+        <input id="omegaSlider" type="range" min="-1" max="1" step="0.01" value="0" />
+        <span id="omegaVal">0.00</span> rad/s
+      </div>
+
+      <div class="joy-vel">
+        vₓ: <span id="vx">0.00</span> m/s · vᵧ: <span id="vy">0.00</span> m/s
+      </div>
+    </aside>
+
+    <!-- Fila 2: mapa (esquerra) i posició/orientació (dreta) -->
+    <div class="map-display">
+      <h3>Map</h3>
+      <canvas id="map-canvas" class="map-image" width="200" height="200"></canvas>
     </div>
 
-    <!-- Control d'ωz -->
-    <div class="omega-wrap">
-      <label for="omegaSlider">ω𝓏:</label>
-      <input id="omegaSlider" type="range" min="-1" max="1" step="0.01" value="0" />
-      <span id="omegaVal">0.00</span> rad/s
-    </div>
-
-    <!-- Panell posició/orientació -->
     <div class="position-display">
       <h3>Position & Orientation</h3>
       <p>X (m): <span id="position-x">0</span></p>
       <p>Y (m): <span id="position-y">0</span></p>
       <p>&Theta; (º): <span id="rotation-z">0</span></p>
-    </div>
-
-    <!-- Mapa -->
-    <div class="map-display">
-      <h3>Map</h3>
-      <canvas id="map-canvas" class="map-image" width="200" height="200"></canvas>
     </div>
   </div>
 
@@ -223,9 +226,9 @@
     let cmdVelTopic;
 
     // --- Configuració ---
-    const MAP_RESOLUTION = 0.02; // m/píxel (escala del teu mapa en my_map.yaml)
+    const MAP_RESOLUTION = 0.01; // m/píxel (escala del teu mapa en my_map.yaml)
     const ROBOT_RADIUS = 5;      // píxels (al canvas)
-    const SPEED_VECTOR_SCALE = 50; // píxels per (m/s) per la fletxa de velocitat
+    const SPEED_VECTOR_SCALE = 100; // píxels per (m/s) per la fletxa de velocitat
 
     // Límits (opció C)
     const maxSpeed = 0.3;  // m/s (per Vx i Vy, amb clamp vectorial)
@@ -248,6 +251,11 @@
     }
 
     function connectToROS() {
+      if (ros && ros.isConnected) {
+        console.log('Ja estàs connectat.');
+        return;
+      }
+      document.getElementById('connectBtn')?.setAttribute('disabled', 'disabled');
       const robotNum = parseInt(document.getElementById('robotNumber').value) || 1;
 
       const mapName = "map"; // fem servir el mapa per defecte
@@ -278,18 +286,28 @@
 
       ros = new ROSLIB.Ros({ url: rosbridgeAddress });
 
+      const connectBtn = document.getElementById('connectBtn');
       ros.on('connection', function () {
         console.log('Connected to rosbridge:', rosbridgeAddress);
+        if (connectBtn) connectBtn.classList.add('connected');  // ✅ Boto verd
         setupTopics();
         setupControls();
+        document.getElementById('connectBtn')?.removeAttribute('disabled');
+        ros.isConnected = true; // flag simple
       });
 
       ros.on('error', function (error) {
         console.error('Connection Error:', error);
+        if (connectBtn) connectBtn.classList.remove('connected'); // Treure boto verd
+        document.getElementById('connectBtn')?.removeAttribute('disabled');
+        ros.isConnected = false;
       });
 
       ros.on('close', function () {
         console.log('Connection closed.');
+        if (connectBtn) connectBtn.classList.remove('connected'); // Treure boto verd
+        document.getElementById('connectBtn')?.removeAttribute('disabled');
+        ros.isConnected = false;
       });
     }
 
