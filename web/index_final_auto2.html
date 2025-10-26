@@ -8,24 +8,81 @@
     <script src="https://cdn.jsdelivr.net/npm/roslib@1/build/roslib.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.9.0/nipplejs.min.js"></script>
     <style>
+        :root{
+            --gap: 20px;
+            --card-bg: #fff;
+            --card-bd: #ccc;
+            --page-bg: #414141;
+        }
+
         body {
             font-family: Arial, sans-serif;
             margin: 0;
             padding: 20px;
-            background-color: #414141;
-        }
-
-        .dashboard {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 20px;
+            background-color: var(--page-bg);
+            color: #000;
         }
 
         .connection-form {
             width: 100%;
-            margin-bottom: 20px;
+            margin-bottom: var(--gap);
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: center;
+        }
+        .connection-form input{
+            padding: 8px 10px;
+            border-radius: 6px;
+            border: 1px solid #bbb;
+            min-width: 220px;
+        }
+        .connection-form button{
+            padding: 8px 14px;
+            border-radius: 6px;
+            border: 1px solid #bbb;
+            background: #f5f5f5;
+            cursor: pointer;
+        }
+        .connection-form button:hover{ filter: brightness(0.97); }
+
+        /* ======= LAYOUT (desktop/tablet) ======= */
+        .dashboard {
+            display: grid;
+            grid-template-columns: 1fr auto 1fr;
+            grid-template-areas:
+            "joyL camera joyR"
+            "map  map    map"
+            "pos  pos    pos";
+            align-items: center;
+            justify-items: center;
+            gap: var(--gap);
         }
 
+        /* Assignem cada peça a la seva àrea de la graella */
+        #joystick_l { grid-area: joyL; justify-self: end; }
+        #joystick_h { grid-area: joyR; justify-self: start; }
+        #camera-feed { grid-area: camera; }
+
+        .map-display   { grid-area: map; }
+        .position-display { grid-area: pos; }
+
+        /* ======= Targetes / caixes ======= */
+        .position-display,
+        .map-display {
+            width: 200px;
+            padding: 10px;
+            background-color: var(--card-bg);
+            border-radius: 5px;
+            border: 1px solid var(--card-bd);
+        }
+
+        /* Ampliem visualment el mapa i el centrem */
+        .map-display {
+            width: min(640px, 100%);
+        }
+
+        /* Joysticks */
         .joystick-container {
             width: 200px;
             height: 200px;
@@ -35,65 +92,60 @@
             overflow: hidden;
         }
 
+        /* Càmera */
         .image-view {
-            width: 320px;
-            height: 240px;
+            width: 480px;          /* més ample en desktop */
+            height: 360px;
             background-color: #000;
-        }
-
-        .position-display,
-        .map-display,
-        .readings-display {
-            padding: 10px;
-            background-color: #fff;
             border-radius: 5px;
+            border: 1px solid var(--card-bd);
+            object-fit: cover;
+            display: block;
         }
 
-        .position-display {
-            width: 200px;
-        }
-
-        .map-display {
-            width: 200px;
-        }
-
-        .readings-display {
-            min-width: 600px;
-            background-color: #f0f0f0;
-            /* Sensor readings background */
-        }
-
-        .readings-container {
-            min-height: 200px;
-            padding: 5px;
-            overflow-y: auto;
-        }
-
-        .readings-container ul {
-            list-style-type: none;
-            padding: 0;
-            margin: 5px 0 5px 10px;
-            columns: 3;
-        }
-
-        .readings-container li {
-            font-size: 0.9em;
-            padding: 1px 0;
-        }
-
-        .sensor-channel {
-            margin-bottom: 10px;
-            border: 1px solid #00000030;
-            padding: 5px;
-            border-radius: 3px;
-            background-color: #f9f9f9;
-        }
-
+        /* Canvas mapa (responsive visual) */
         .map-image {
             width: 100%;
             height: auto;
-            border: 1px solid #ccc;
+            border: 1px solid var(--card-bd);
             border-radius: 5px;
+            display: block;
+        }
+
+        /* ======= Responsive (mòbil) ======= */
+        @media (max-width: 900px) {
+            .dashboard {
+            grid-template-columns: 1fr;
+            grid-template-areas:
+                "camera"
+                "joyL"
+                "joyR"
+                "map"
+                "pos";
+            justify-items: center;
+            }
+
+            #joystick_l,
+            #joystick_h {
+            justify-self: center;
+            }
+
+            .joystick-container {
+            width: 160px;
+            height: 160px;
+            }
+
+            .image-view {
+            width: 100%;
+            max-width: 520px;
+            height: auto;     /* conserva proporció */
+            }
+
+            .position-display,
+            .map-display {
+            width: 100%;
+            max-width: 520px;
+            }
         }
     </style>
 </head>
@@ -120,11 +172,6 @@
             <h3>Map</h3>
             <canvas id="map-canvas" class="map-image" width="200" height="200"></canvas>
         </div>
-
-        <div class="readings-display">
-            <h3>Sensor Readings (ENS160)</h3>
-            <div class="readings-container" id="readings">Awaiting Data...</div>
-        </div>
     </div>
 
     <script>
@@ -139,10 +186,6 @@
         const ROBOT_RADIUS = 5; // pixels
         const SPEED_VECTOR_SCALE = 50; // pixels per m/s 
         let mapImage = new Image();
-
-        const EXPECTED_KEYS = ['eCO2', 'TVOC', 'AQI', 'R0', 'R1', 'R2', 'R3'];
-        const KEYS_PER_CHANNEL = EXPECTED_KEYS.length; // 7
-        const MAX_CHANNELS = 6; // CH0 to CH5
 
         function getRosbridgeAddress() {
             const currentUrl = window.location.href;
@@ -246,62 +289,8 @@
                 drawRobotState(position.x, position.y, velX_global, velY_global, yaw);
             });
 
-            // --- Sensor Data Subscription (Custom Message) ---
-            const sensorTopic = new ROSLIB.Topic({
-                ros: ros,
-                name: 'ens160_fused_data',
-                messageType: 'ens160_interfaces/msg/SensorData'
-            });
-
-            sensorTopic.subscribe(function (message) {
-                updateSensorDisplay(message.sensor_readings);
-            });
 
             setupJoysticks();
-        }
-
-        function updateSensorDisplay(readings) {
-            const container = document.getElementById('readings');
-            container.innerHTML = ''; // Clear previous content
-
-            if (readings.length === 0) {
-                container.innerHTML = '<p>No sensor data received.</p>';
-                return;
-            }
-
-            // 1. Calculate how many complete channels were received
-            const receivedChannels = Math.floor(readings.length / KEYS_PER_CHANNEL);
-
-            // Optional integrity check
-            if (readings.length % KEYS_PER_CHANNEL !== 0 || receivedChannels > MAX_CHANNELS) {
-                container.innerHTML = `<p style="color: red;">Error in data structure: ${readings.length} readings received, not a multiple of ${KEYS_PER_CHANNEL} or exceeds ${MAX_CHANNELS} channels.</p>`;
-                return;
-            }
-
-            let htmlContent = '';
-
-            // 2. Iterate only over the number of received channels
-            for (let i = 0; i < receivedChannels; i++) {
-                const channelName = `CH${i}`;
-
-                htmlContent += `<div class="sensor-channel">
-                                    <strong>${channelName}</strong>:<ul>`;
-
-                // 3. Iterate over the 7 keys per channel
-                for (let j = 0; j < KEYS_PER_CHANNEL; j++) {
-                    const key = EXPECTED_KEYS[j];
-                    const index = i * KEYS_PER_CHANNEL + j; // Calculate the index in the flat array
-
-                    // The ternary operator: check if the value exists, then format, otherwise use "N/A"
-                    const value = readings[index] !== undefined ? readings[index].toFixed(2) : "N/A";
-
-                    htmlContent += `<li>${key}: ${value}</li>`;
-                }
-
-                htmlContent += `</ul></div>`;
-            }
-
-            container.innerHTML = htmlContent;
         }
 
         function drawRobotState(robotX, robotY, velX, velY, yaw) {
@@ -453,4 +442,4 @@
     </script>
 </body>
 
-</html>
+</html>>

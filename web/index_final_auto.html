@@ -41,52 +41,12 @@
             background-color: #000;
         }
 
-        .position-display,
-        .map-display,
-        .readings-display {
-            padding: 10px;
-            background-color: #fff;
-            border-radius: 5px;
-        }
-
         .position-display {
             width: 200px;
         }
 
         .map-display {
             width: 200px;
-        }
-
-        .readings-display {
-            min-width: 600px;
-            background-color: #f0f0f0;
-            /* Sensor readings background */
-        }
-
-        .readings-container {
-            min-height: 200px;
-            padding: 5px;
-            overflow-y: auto;
-        }
-
-        .readings-container ul {
-            list-style-type: none;
-            padding: 0;
-            margin: 5px 0 5px 10px;
-            columns: 3;
-        }
-
-        .readings-container li {
-            font-size: 0.9em;
-            padding: 1px 0;
-        }
-
-        .sensor-channel {
-            margin-bottom: 10px;
-            border: 1px solid #00000030;
-            padding: 5px;
-            border-radius: 3px;
-            background-color: #f9f9f9;
         }
 
         .map-image {
@@ -120,11 +80,6 @@
             <h3>Map</h3>
             <canvas id="map-canvas" class="map-image" width="200" height="200"></canvas>
         </div>
-
-        <div class="readings-display">
-            <h3>Sensor Readings (ENS160)</h3>
-            <div class="readings-container" id="readings">Awaiting Data...</div>
-        </div>
     </div>
 
     <script>
@@ -139,10 +94,6 @@
         const ROBOT_RADIUS = 5; // pixels
         const SPEED_VECTOR_SCALE = 50; // pixels per m/s 
         let mapImage = new Image();
-
-        const EXPECTED_KEYS = ['eCO2', 'TVOC', 'AQI', 'R0', 'R1', 'R2', 'R3'];
-        const KEYS_PER_CHANNEL = EXPECTED_KEYS.length; // 7
-        const MAX_CHANNELS = 6; // CH0 to CH5
 
         function getRosbridgeAddress() {
             const currentUrl = window.location.href;
@@ -246,62 +197,8 @@
                 drawRobotState(position.x, position.y, velX_global, velY_global, yaw);
             });
 
-            // --- Sensor Data Subscription (Custom Message) ---
-            const sensorTopic = new ROSLIB.Topic({
-                ros: ros,
-                name: 'ens160_fused_data',
-                messageType: 'ens160_interfaces/msg/SensorData'
-            });
-
-            sensorTopic.subscribe(function (message) {
-                updateSensorDisplay(message.sensor_readings);
-            });
 
             setupJoysticks();
-        }
-
-        function updateSensorDisplay(readings) {
-            const container = document.getElementById('readings');
-            container.innerHTML = ''; // Clear previous content
-
-            if (readings.length === 0) {
-                container.innerHTML = '<p>No sensor data received.</p>';
-                return;
-            }
-
-            // 1. Calculate how many complete channels were received
-            const receivedChannels = Math.floor(readings.length / KEYS_PER_CHANNEL);
-
-            // Optional integrity check
-            if (readings.length % KEYS_PER_CHANNEL !== 0 || receivedChannels > MAX_CHANNELS) {
-                container.innerHTML = `<p style="color: red;">Error in data structure: ${readings.length} readings received, not a multiple of ${KEYS_PER_CHANNEL} or exceeds ${MAX_CHANNELS} channels.</p>`;
-                return;
-            }
-
-            let htmlContent = '';
-
-            // 2. Iterate only over the number of received channels
-            for (let i = 0; i < receivedChannels; i++) {
-                const channelName = `CH${i}`;
-
-                htmlContent += `<div class="sensor-channel">
-                                    <strong>${channelName}</strong>:<ul>`;
-
-                // 3. Iterate over the 7 keys per channel
-                for (let j = 0; j < KEYS_PER_CHANNEL; j++) {
-                    const key = EXPECTED_KEYS[j];
-                    const index = i * KEYS_PER_CHANNEL + j; // Calculate the index in the flat array
-
-                    // The ternary operator: check if the value exists, then format, otherwise use "N/A"
-                    const value = readings[index] !== undefined ? readings[index].toFixed(2) : "N/A";
-
-                    htmlContent += `<li>${key}: ${value}</li>`;
-                }
-
-                htmlContent += `</ul></div>`;
-            }
-
-            container.innerHTML = htmlContent;
         }
 
         function drawRobotState(robotX, robotY, velX, velY, yaw) {
@@ -453,4 +350,4 @@
     </script>
 </body>
 
-</html>
+</html>>
