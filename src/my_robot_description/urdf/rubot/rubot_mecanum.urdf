@@ -340,7 +340,7 @@
     <material>Gazebo/Green</material>
   </gazebo>
   <gazebo reference="part">
-    <material>Gazebo/Red</material>
+    <material>Gazebo/Yellow</material>
   </gazebo>
   <gazebo reference="upper_left_wheel">
     <material>Gazebo/Grey</material>
