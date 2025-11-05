@@ -96,7 +96,7 @@ A first simple control program is created to move the robot according to a speci
 
 - We first bringup our robot (rubot/rubot_mecanum.urdf) in a speciffic world on a desired POSE:
 ```shell
-ros2 launch my_robot_bringup my_robot_bringup_sw.launch.xml use_sim_time:=True x0:=1.0 y0:=1.0 yaw0:=1.8 robot:=rubot/rubot_mecanum.urdf custom_world:=square3m_walls.world
+ros2 launch my_robot_bringup my_robot_bringup_sw.launch.xml x0:=1.0 y0:=1.0 yaw0:=1.8 robot:=rubot/rubot_mecanum.urdf custom_world:=square3m_walls.world
 ```
 ![](./Images/03_Control/06_bringup_sw.png)
 

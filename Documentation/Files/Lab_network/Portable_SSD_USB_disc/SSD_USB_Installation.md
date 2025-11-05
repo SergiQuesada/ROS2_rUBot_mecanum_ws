@@ -143,3 +143,22 @@ After installation, you can verify Docker and Docker Compose are installed corre
 docker --version
 docker-compose --version
 ```
+
+## Reset student user
+
+Every year course is convenient to reset the user `student` to its initial state.
+- Make executable the scripts:
+  ````bash
+  chmod 700 ~/Desktop/reset_student.sh
+  chmod 700 ~/Desktop/reset_student.desktop
+  ````
+- Ensure the files are owned by the user biorob:
+  ````bash
+  chown biorob:biorob ~/Desktop/reset_student.sh ~/Desktop/reset_student.desktop
+  ````
+- Execute the script:
+````bash
+sudo ~/Desktop/reset_student.sh
+````
+> if PASSWORD="", you will have to type the new pass for user `student`
+> If you prefer the launcher `reset_student.desktop`, you double-click and you will have to type your admin password.

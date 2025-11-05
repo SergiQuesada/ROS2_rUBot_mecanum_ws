@@ -451,6 +451,7 @@ Ye have saved this RVIZ configuration in `urdf_lidar_cam.rviz` file and the brin
 ````shell
 ros2 launch my_robot_bringup my_robot_bringup_sw_rviz.launch.xml robot:=limo/rubot_limo.urdf x0:=0.5 y0:=0.5 yaw0:=1.57
 ````
+> The argument `use_sim_time` is by default true in this launch file
 
 #### **Design a custom world**
 
@@ -508,8 +509,10 @@ You will have to:
 
 To verify the final bringup, execute `my_robot_bringup_sw.launch.xml` launch file with your speciffic argument values: 
 ```shell
-ros2 launch my_robot_bringup my_robot_bringup_sw.launch.xml use_sim_time:=true robot:=rubot/rubot_mecanum.urdf custom_world:=square3m_walls.world x0:=0.0 y0:=0.0 yaw0:=1.57
+ros2 launch my_robot_bringup my_robot_bringup_sw_rviz.launch.xml robot:=rubot/rubot_mecanum_custom.urdf custom_world:=my_custom_world.world x0:=0.0 y0:=0.0 yaw0:=1.57
 ```
+> The argument `use_sim_time` is by default true in this launch file
+
 ![](./Images/02_rubot_model/07_mecanum_bringup.png)
 
 Upload a zip file with:
@@ -532,8 +535,10 @@ sudo apt install ros-humble-teleop-twist-keyboard
 When you are using the virtual environment to simulate the robot behavior you have to:
 - Bringup our robot in Gazebo virtual environment
   ````shell
-  ros2 launch my_robot_bringup my_robot_bringup_sw.launch.xml use_sim_time:=true x0:=0.5 y0:=-1.5 yaw0:=1.57 robot:=rubot/rubot_mecanum.urdf custom_world:=square4m_sign.world
+  ros2 launch my_robot_bringup my_robot_bringup_sw.launch.xml x0:=0.5 y0:=-1.5 yaw0:=1.57 robot:=rubot/rubot_mecanum.urdf custom_world:=square4m_sign.world
   ````
+  > The argument `use_sim_time` is by default true in this launch file
+
 - In a new terminal, launch the teleop-twist-keyboard:
   ```shell
   ros2 run teleop_twist_keyboard teleop_twist_keyboard
@@ -552,7 +557,7 @@ When you are using the real robot, the bringup is already done. You need only to
 ```shell
 ros2 launch my_robot_description display.launch.py use_sim_time:=false robot_model:=robot_arm/my_simple_robot.urdf
 ````
-> In real robot, we use by default `robot_arm/my_simple_robot.urdf`
+> In real robot, we use `use_sim_time:=false` and `robot_model:=robot_arm/my_simple_robot.urdf`. This has to be specified when launching display.launch.py file
 
 Launch the teleop-twist-keyboard control node:
 ```shell

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Reset Student (Ubuntu)
+Comment=Delete and recreate 'student' account cleanly
+# Uses pkexec to request admin privileges graphically
+Exec=pkexec /home/biorob/Desktop/reset_student.sh
+Icon=system-users
+Terminal=true
+Categories=System;Utilities;

@@ -4,136 +4,77 @@ from rclpy.node import Node
 from sensor_msgs.msg import LaserScan
 from geometry_msgs.msg import Twist
 
+
 class WallFollower(Node):
 
     def __init__(self):
         super().__init__('wall_follower_node')
-        
-        self.declare_parameter('distance_laser', 0.3)
-        self.declare_parameter('forward_speed', 0.2)
-        self.declare_parameter('rotation_speed', 0.3)
-        self.declare_parameter('speed_factor', 1.0)
-        self.declare_parameter('time_to_stop', 5.0)
-        
-        self.d = self.get_parameter('distance_laser').value
-        self.vx = self.get_parameter('forward_speed').value
-        self.wz = self.get_parameter('rotation_speed').value
-        self.vf = self.get_parameter('speed_factor').value
-        self.time_to_stop = self.get_parameter('time_to_stop').value
 
-        self.is_scan_ranges_length_correction_factor_calculated = False
-        self.scan_ranges_length_correction_factor = 2
+        # Parameters
+        self.declare_parameter('distance_laser', 0.5)
+        self.base_distance = self.get_parameter('distance_laser').value
+        self.tolerance = 0.05
+
+        # Subscriptions and publications
+        self.subscription = self.create_subscription(
+            LaserScan,
+            '/scan',
+            self.laser_callback,
+            10  # Default QoS depth
+        )
 
         self.publisher = self.create_publisher(Twist, '/cmd_vel', 10)
-        self.subscription = self.create_subscription(LaserScan, '/scan', self.clbk_laser, 10)
-        
-        self.regions = None
+        self.timer = self.create_timer(1.0, self.log_info)
 
-        self.timer_period = 0.04  # seconds
-        self.timer = self.create_timer(self.timer_period, self.take_action)
+        self.closest = (float('inf'), 'unknown')
 
-        self.start_time = self.get_clock().now().seconds_nanoseconds()[0]
-        self._shutting_down = False #flag to ensure a proper shutdown
+    def laser_callback(self, scan):
+        angle_min_deg = scan.angle_min * 180.0 / 3.14159
+        angle_increment_deg = scan.angle_increment * 180.0 / 3.14159
 
-        self.get_logger().info("Wall Follower Node Initialized")
-        
-    def clbk_laser(self, msg):
-        if self._shutting_down: #check flag
-            return
-        
-        # Calculate the correction factor on the first execution
-        if not self.is_scan_ranges_length_correction_factor_calculated:
-            self.scan_ranges_length_correction_factor = len(msg.ranges) / 360
-            self.is_scan_ranges_length_correction_factor_calculated = True
+        front_distances = []
+        right_distances = []
 
-        bright_min = int(30 * self.scan_ranges_length_correction_factor)
-        bright_max = int(90 * self.scan_ranges_length_correction_factor)
-        right_min = int(90 * self.scan_ranges_length_correction_factor)
-        right_max = int(120 * self.scan_ranges_length_correction_factor)
-        fright_min = int(120 * self.scan_ranges_length_correction_factor)
-        fright_max = int(170 * self.scan_ranges_length_correction_factor)
-        front_min = int(170 * self.scan_ranges_length_correction_factor)
-        front_max = int(190 * self.scan_ranges_length_correction_factor)
+        for i, distance in enumerate(scan.ranges):
+            angle_deg = angle_min_deg + i * angle_increment_deg
+            if distance == float('inf') or distance == 0.0:
+                continue
+            if -15 <= angle_deg <= 15:
+                front_distances.append(distance)
+            elif -110 <= angle_deg < -15:
+                right_distances.append(distance)
 
-        self.regions = {
-            'bright': min(min(msg.ranges[bright_min:bright_max]), 3),
-            'right': min(min(msg.ranges[right_min:right_max]), 3),
-            'fright': min(min(msg.ranges[fright_min:fright_max]), 3),
-            'front': min(min(msg.ranges[front_min:front_max]), 3),
-        }
+        min_front = min(front_distances) if front_distances else float('inf')
+        min_right = min(right_distances) if right_distances else float('inf')
 
-    def take_action(self):
-        if self._shutting_down: #check flag
-            return
-        elapsed_time = self.get_clock().now().seconds_nanoseconds()[0] - self.start_time
+        self.closest = (min(min_front, min_right), 'front' if min_front < min_right else 'right')
 
-        if self.regions is None:
-            return
+        twist = Twist()
 
-        msg = Twist()
-        linear_x = 0.0
-        angular_z = 0.0
-
-        state_description = ''
-
-        if self.regions['front'] > self.d and self.regions['fright'] > 2 * self.d and self.regions['right'] > 2 * self.d and self.regions['bright'] > 2 * self.d:
-            state_description = 'case 1 - nothing'
-            linear_x = self.vx
-            angular_z = 0.0
-        elif self.regions['front'] < self.d:
-            state_description = 'case 2 - front'
-            linear_x = 0.0
-            angular_z = self.wz
-        elif self.regions['fright'] < self.d:
-            state_description = 'case 3 - fright'
-            linear_x = 0.0
-            angular_z = self.wz
-        elif self.regions['front'] > self.d and self.regions['right'] < self.d:
-            state_description = 'case 4 - right'
-            linear_x = self.vx
-            angular_z = 0.0
-        elif self.regions['bright'] < self.d:
-            state_description = 'case 5 - bright'
-            linear_x = 0.0
-            angular_z = -self.wz/2
+        if min_front < self.base_distance:
+            twist.angular.z = 0.3
+            action = "Turning left: obstacle ahead"
+        elif min_right < self.base_distance - self.tolerance:
+            twist.angular.z = 0.3
+            action = "Too close to wall: turning left"
+        elif min_right > self.base_distance + self.tolerance:
+            twist.angular.z = -0.3
+            action = "Too far from wall: turning right"
         else:
-            state_description = 'case 6 - Far'
-            linear_x = self.vx
-            angular_z = -self.wz
+            twist.linear.x = 0.2
+            action = "Following wall"
 
-        self.get_logger().info(state_description)
-        msg.linear.x = linear_x
-        msg.angular.z = angular_z
-        self.publisher.publish(msg)
+        self.get_logger().info(action)
+        self.publisher.publish(twist)
 
-        if elapsed_time >= self.time_to_stop:
-            self.stop()
-            self.timer.cancel()
-            self.get_logger().info(f"Robot stopped")
-            #time.sleep(0.1) #add a small delay if needed to give time to finish the get_logger.
-            rclpy.try_shutdown() #shutdown the node better than rclpy.shutdown
-            #No more get_loggers are permitted
+    def log_info(self):
+        dist, region = self.closest
+        self.get_logger().info(f"Closest object at {dist:.2f} m in region: {region.upper()}")
 
-    def stop(self):
-        self._shutting_down = True
-        stop_msg = Twist()
-        stop_msg.linear.x = 0.0
-        stop_msg.angular.z = 0.0
-        self.publisher.publish(stop_msg)
-        rclpy.spin_once(self, timeout_sec=0.1)
 
 def main(args=None):
     rclpy.init(args=args)
-    wall_follower = WallFollower()
-
-    try:
-        rclpy.spin(wall_follower)
-    except KeyboardInterrupt:
-        # ROS2 is already stopped and I can not execute any more functions
-        # if elapsed time is not reached, the robot will not stop
-        pass
-    finally:
-        wall_follower.destroy_node()
-
-if __name__ == '__main__':
-    main()
+    node = WallFollower()
+    rclpy.spin(node)
+    node.destroy_node()
+    rclpy.shutdown()
