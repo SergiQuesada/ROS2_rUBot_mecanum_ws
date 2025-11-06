@@ -41,25 +41,12 @@ cd ..
 colcon build
 ````
 
-- Open .bashrc and verify if there are these lines:
-````shell
-export ROS_DOMAIN_ID=0
-export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
-export GAZEBO_MODEL_PATH=/home/user/ROS2_rUBot_mecanum_ws/src/my_robot_bringup/models:$GAZEBO_MODEL_PATH
-source /opt/ros/humble/setup.bash
-source /usr/share/colcon_argcomplete/hook/colcon-argcomplete.bash
-source /home/user/ROS2_rUBot_tutorial_ws/install/setup.bash
-source /home/user/ROS2_rUBot_mecanum_ws/install/setup.bash
-#cd /home/user/ROS2_rUBot_tutorial_ws
-cd /home/user/ROS2_rUBot_mecanum_ws
-````
-
 ## **4.2. Generate a Map with SLAM**
 
 - Fist of all you have to bringup the robot in the desired environment:
     - In the case of Virtual environment:
         ````shell
-        ros2 launch my_robot_bringup my_robot_bringup_sw.launch.xml use_sim_time:=True x0:=0.5 y0:=-1.5 yaw0:=1.57 robot:=rubot/rubot_mecanum.urdf custom_world:=square4m_sign.world
+        ros2 launch my_robot_bringup my_robot_bringup_sw.launch.xml x0:=0.5 y0:=-1.5 yaw0:=1.57 robot:=rubot/rubot_mecanum.urdf custom_world:=square4m_sign.world
         ````
         >Change the custom_world with the world name you have created
     - In the case of a real robot:
@@ -69,13 +56,13 @@ cd /home/user/ROS2_rUBot_mecanum_ws
 - to generate the map:
     - In the case of Virtual environment:
     ````shell
-    ros2 launch my_robot_cartographer cartographer.launch.py use_sim_time:=True
+    ros2 launch my_robot_cartographer cartographer.launch.py
     ````
-    >use_sim_time have to be True when using Gazebo for Virtual simulation
+    >use_sim_time:=true when using Gazebo for Virtual simulation. Is true by default in cartographer.launch.py file
     - In the case of real robot:
     ````shell
     ros2 topic pub --once /reset_odom std_msgs/msg/Bool "{data: true}"
-    ros2 launch my_robot_cartographer cartographer.launch.py use_sim_time:=False
+    ros2 launch my_robot_cartographer cartographer.launch.py use_sim_time:=false
     ````
 - Navigate on the world to store the map
     ````shell
@@ -89,30 +76,20 @@ cd /home/user/ROS2_rUBot_mecanum_ws
 
 ## **4.3. Navigate inside Map**
 
-- Fist of all we have to make a correction because sometimes the Map is not read correctly or ontime (this is already installed in our Dockerfile.robot):
-    - Install ros-humble-rmw-cyclonedds-cpp
-    ````shell
-    sudo apt update
-    sudo apt install ros-humble-rmw-cyclonedds-cpp
-    ````
-    - Add the environment variable in .bashrc
-    ````shell
-    export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
-    ````
 - Let`s now make the robot navigate using the Map:
     - In the case of Virtual environment:
         ````shell
-        ros2 launch my_robot_bringup my_robot_bringup_sw.launch.xml use_sim_time:=True x0:=0.5 y0:=-1.5 yaw0:=1.57 robot:=robot_arm/my_simple_robot.urdf custom_world:=square4m_sign.world
+        ros2 launch my_robot_bringup my_robot_bringup_sw.launch.xml x0:=0.5 y0:=-1.5 yaw0:=1.57 robot:=robot_arm/my_simple_robot.urdf custom_world:=square4m_sign.world
         ````
         >Change the URDF file for each robot
         - Launch Navigation node: python launcher is more powerfull than previous xml format
         ````bash
-        ros2 launch my_robot_navigation2 navigation2_robot.launch.py use_sim_time:=True robot:=robot_arm/my_simple_robot.urdf map_file:=map_square4m_sign.yaml params_file:=rubot_sw.yaml 
+        ros2 launch my_robot_navigation2 navigation2_robot.launch.py robot:=robot_arm/my_simple_robot.urdf map_file:=map_square4m_sign.yaml params_file:=rubot_sw.yaml 
         ````
         >For LIMO: We use "limo_sw.yaml" file. In case we want to priorize the lidar data from odometry data we will use Limo_sw_lidar.yaml
     - In the case of real robot:
         ````shell
-        ros2 launch my_robot_navigation2 navigation2_robot.launch.py use_sim_time:=False robot:=robot_arm/my_simple_robot.urdf map_file:=my_map.yaml params_file:=rubot_real.yaml
+        ros2 launch my_robot_navigation2 navigation2_robot.launch.py use_sim_time:=false robot:=robot_arm/my_simple_robot.urdf map_file:=my_map.yaml params_file:=rubot_real.yaml
         ````
         > If you do not see the MAP in rviz2, close the terminal execution (crtl+C) and start again until you see the Map.
 
@@ -145,18 +122,19 @@ To navigate programmatically using Simple Commander API, you have to proceed wit
 - Bringup the robot in the desired environment:
     - In the case of Virtual environment:
         ````shell
-        ros2 launch my_robot_bringup my_robot_bringup_sw.launch.xml use_sim_time:=True x0:=0.5 y0:=-1.5 yaw0:=1.57 robot:=robot_arm/my_simple_robot.urdf  custom_world:=square4m_sign.world
+        ros2 launch my_robot_bringup my_robot_bringup_sw.launch.xml x0:=0.5 y0:=-1.5 yaw0:=1.57 robot:=robot_arm/my_simple_robot.urdf  custom_world:=square4m_sign.world
         ````
     - In the case of a real robot, the bringup is already made when turned on
 - Start the navigation2.launch.py with rviz to see the evolution of robot navigation
     - In the case of Virtual environment:
         ````shell
-        ros2 launch my_robot_navigation2 navigation2_robot.launch.py use_sim_time:=True robot:=robot_arm/my_simple_robot.urdf map_file:=map_square4m_sign.yaml params_file:=rubot_sw.yaml
+        ros2 launch my_robot_navigation2 navigation2_robot.launch.py robot:=robot_arm/my_simple_robot.urdf map_file:=map_square4m_sign.yaml params_file:=rubot_sw.yaml
         ````
         - In the case of real robot:
         ````shell
-        ros2 launch my_robot_navigation2 navigation2_robot.launch.py use_sim_time:=False robot:=robot_arm/my_simple_robot.urdf map_file:=map_square4m_sign.yaml params_file:=rubot_real.yaml
+        ros2 launch my_robot_navigation2 navigation2_robot.launch.py use_sim_time:=false robot:=robot_arm/my_simple_robot.urdf map_file:=map_square4m_sign.yaml params_file:=rubot_real.yaml
         ````
+        > Here is important to specify `use_sim_time:=false` for real robot. In `navigation2_robot.launch.py` file is set to true by default.
 - Launch the created python file to define the Initial point and one target point defined in nav_target.py file:
     ````shell
     ros2 launch my_robot_nav_control nav_target.launch.py

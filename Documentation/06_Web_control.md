@@ -72,14 +72,14 @@ Then you proceed with:
 - Run a simple HTTP server. Open PowerShell or CMD and run:
     ````python
     cd ~/ROS2_rUBot_mecanum_ws/web
-    python3 -m http.server 7000
+    python3 -m http.server 8000
     ````
     > When using TheConstruc environment, port has to be 7000 but in other environments you can use port 8000   
 - When you open the web Dashboard in the same computer, from new terminal:
     - in VPN virtual environment (TheConstruct's ROS2 virtual environment), type `webpage_address` and later `rosbridge_address`
     - in external Disc Ubuntu, type:
         ````shell
-        firefox http://localhost:7000/
+        firefox http://localhost:8000/
         ````
         > In the connection field we have to write the address where our RosBridge is running: `ws://localhost:9090`
         
@@ -87,7 +87,7 @@ Then you proceed with:
 
 - Open Chrome / Edge / Firefox.
 
-- Real robot the address will be `http://<ROBOT_IP>:7000/`. This opens by defauld index.html, but you can specify any other html file in the web folder: `http://<ROBOT_IP>:7000/index_new.html`
+- Real robot the address will be `http://<ROBOT_IP>:8000/`. This opens by defauld index.html, but you can specify any other html file in the web folder: `http://<ROBOT_IP>:8000/index_new.html`
 - In the connection field we have to write the address where our RosBridge is running: `ws://<ROBOT_IP>:9090`
 - Click Connect → it should show Connected.
 
