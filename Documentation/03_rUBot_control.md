@@ -126,8 +126,10 @@ ros2 launch my_robot_bringup my_robot_bringup_sw.launch.xml x0:=1.0 y0:=1.0 yaw0
     - as arguments in command-line
 - Compile again and execute (I have changed the time duration as argument in command-line):
     ```
-    ros2 launch my_robot_control my_robot_control.launch.xml td:=10.0
+    ros2 launch my_robot_control my_robot_control.launch.xml vx:=0.0 vy:=0.2 td:=5.0
     ```
+    > Change parameter values to verify different movements
+
 **Real robot**
 
 The same simple control program created in virtual environment to move the robot is used for the real robot.
@@ -138,27 +140,34 @@ The same simple control program created in virtual environment to move the robot
 
 - We control the robot with the same node created for virtual environment:
     ``` shell
-    ros2 launch my_robot_control my_robot_control.launch.xml vx:=0.0 vy:=0.2 w:=0.0 td:=10.0
+    ros2 launch my_robot_control my_robot_control.launch.xml vx:=0.0 vy:=0.2 w:=0.0 td:=5.0
     ```
 To properly control your real rUBot, we have a very usefull Lidar sensor to detect obstacles and avoid collisions.
 
-A first activity is proposed to verify the Lidar readings.
+A first node is created to verify the Lidar readings. Open a new terminal and type:
+```shell
+ros2 launch my_robot_control my_robot_lidar_test.launch.xml
+```
+- Are the Lidar readings correct?
+- what do you think it could hapen?
+
+A first activity is proposed to analyse and correct the Lidar readings.
 
 **Lab Activity: Lidar test**
 
 The objectives of this activity are:
 - Put your robot inside a real world
-- Launch the rubot_lidar_test.launch file and verify:
+- Launch the rubot_lidar_test.launch.xml file and verify:
   - the number of laser beams
   - the angle for the first laser beam index
   - the total laser beams angle range
-- Create a new **rubot_lidar_test_custom.launch** and **rubot_lidar_test_custom.py**, including:
-    - Definition regions: right, front-right, front, front-left, left
-    - Print the minimum distance and angle for each region
+- Create a new **rubot_lidar_test_rUBot.launch** and **rubot_lidar_test_rUBot.py**, including:
+    - The minimum distance and angle
+    -The distances at 0º, 90º and -90º
 
 Upload a pdf file with a picture including:
 - Gazebo and rviz screen where you can see the robot and the Lidar readings
-- terminal running the "rubot_lidar_test_custom.launch" with distances readings
+- terminal running the "rubot_lidar_test_rUBot.launch" with distances readings
 
 ## **2. Driving self-control using Lidar sensor**
 
