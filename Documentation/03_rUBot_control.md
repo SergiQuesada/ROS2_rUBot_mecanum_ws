@@ -232,9 +232,7 @@ The objectives of this lab session are:
 
 We have created a Wall_Follower strategy based on the reading distances from LIDAR in the ranges: front, front-right, right and back-right, and perform a specific actuation in function of the minimum distance readings.
 
-Follow the instructions to create the program is described on: https://www.theconstructsim.com/wall-follower-algorithm/
-
-The algorith is based on laser ranges test and depends on the LIDAR type: 
+The algorith is based on laser ranges test and speciffic actuations on each region: 
 ![](./Images/03_Control/10_lidar_rg.png)
 
 **VIRTUAL environment**
