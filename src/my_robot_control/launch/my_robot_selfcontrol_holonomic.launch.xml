@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<launch>
+
+    <!-- Parameters for holonomic self-control -->
+    <arg name="distance_limit" default="0.4"/>
+    <arg name="speed_factor" default="1.0"/>
+    <arg name="forward_speed" default="0.2"/>
+    <arg name="side_speed" default="0.2"/>   <!-- NEW holonomic parameter -->
+    <arg name="time_to_stop" default="10.0"/>
+
+    <node
+        pkg="my_robot_control"
+        exec="my_robot_selfcontrol_holonomic_exec"
+        name="robot_selfcontrol_holonomic"
+        output="screen">
+
+        <param name="distance_limit" value="$(var distance_limit)"/>
+        <param name="speed_factor" value="$(var speed_factor)"/>
+        <param name="forward_speed" value="$(var forward_speed)"/>
+        <param name="side_speed" value="$(var side_speed)"/> 
+        <param name="time_to_stop" value="$(var time_to_stop)"/>
+
+    </node>
+
+</launch>
