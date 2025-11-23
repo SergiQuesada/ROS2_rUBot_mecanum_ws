@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<launch>
+    <arg name="vx" default="0.3"/>
+    <arg name="vy" default="0.0"/>
+    <arg name="w" default="0.0"/>
+    <arg name="stop_distance" default="0.30"/>
+
+    <node
+        pkg="my_robot_control"
+        exec="my_robot_control_lidar_exec"
+        name="robot_lidar_control_node"
+        output="screen">
+
+        <param name="vx" value="$(var vx)"/>
+        <param name="vy" value="$(var vy)"/>
+        <param name="w" value="$(var w)"/>
+        <param name="stop_distance" value="$(var stop_distance)"/>
+    </node>
+</launch>
