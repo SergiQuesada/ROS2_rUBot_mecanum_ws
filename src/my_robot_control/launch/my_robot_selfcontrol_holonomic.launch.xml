@@ -2,12 +2,12 @@
 <launch>
 
     <!-- Parameters for holonomic self-control -->
-    <arg name="distance_limit" default="0.1"/>
+    <arg name="distance_limit" default="0.4"/>
     <arg name="speed_factor" default="1.0"/>
     <arg name="forward_speed" default="0.2"/>
     <arg name="strafe_speed" default="0.2"/>   <!-- NEW holonomic parameter -->
     <arg name="rotation_speed" default="0.5"/> <!-- Not used in holonomic control -->
-    <arg name="time_to_stop" default="10.0"/>
+    <arg name="time_to_stop" default="30.0"/>
 
     <node
         pkg="my_robot_control"
