@@ -46,7 +46,7 @@ class WallFollowerHolonomic(Node):
         self.start_time_s = self.get_clock().now().nanoseconds * 1e-9
 
         self.get_logger().info(
-            "WallFollower (RIGHT tol, BACK_RIGHT when closest) - differential drive."
+            "WallFollower (Holonomic) - using lateral strafing for obstacle avoidance."
         )
 
     #--------------------------------------------------------------------
@@ -106,6 +106,7 @@ class WallFollowerHolonomic(Node):
         FR_RIGHT    = []
         RIGHT       = []
         BACK_RIGHT  = []
+        BACK        = []
 
         for i, d in enumerate(scan.ranges):
             if not math.isfinite(d):
@@ -123,36 +124,40 @@ class WallFollowerHolonomic(Node):
                 RIGHT.append(d)
             elif -160 <= ang < -110:
                 BACK_RIGHT.append(d)
+            elif ang > 160 or ang < -160:
+                BACK.append(d)
 
         # Minimal distances
         min_front      = min(FRONT)      if FRONT      else float('inf')
         min_fr_right   = min(FR_RIGHT)   if FR_RIGHT   else float('inf')
         min_right      = min(RIGHT)      if RIGHT      else float('inf')
         min_back_right = min(BACK_RIGHT) if BACK_RIGHT else float('inf')
+        min_back       = min(BACK)       if BACK       else float('inf')
+
 
         twist = Twist()
         action = ""
 
         #----------------------------------------------------------
-        # RULE 1: FRONT obstacle → turn left
+        # RULE 1: FRONT obstacle → strafe left
         #----------------------------------------------------------
         if min_front < self.base_distance:
-            twist.linear.x = 0.0
-            twist.linear.y = 0.0
-            twist.angular.z = self.v_ang * 2.0
-            action = f"FRONT {min_front:.2f} m → turn LEFT"
+            twist.linear.x = self.v_lin
+            twist.linear.y = self.v_ang * 2.0  # strafe left
+            twist.angular.z = 0.0
+            action = f"FRONT {min_front:.2f} m → strafe LEFT"
 
         #----------------------------------------------------------
-        # RULE 2: FRONT-RIGHT obstacle → slow + left
+        # RULE 2: FRONT-RIGHT obstacle → forward + strafe LEFT
         #----------------------------------------------------------
         elif min_fr_right < self.base_distance:
-            twist.linear.x = 0.0
-            twist.linear.y = 0.0
-            twist.angular.z = self.v_ang * 2.0
-            action = f"FRONT-RIGHT {min_fr_right:.2f} m → turn LEFT"
+            twist.linear.x = self.v_lin * 0.7
+            twist.linear.y = self.v_ang * 1.5  # strafe left
+            twist.angular.z = 0.0
+            action = f"FRONT-RIGHT {min_fr_right:.2f} m → forward + strafe LEFT"
 
         #----------------------------------------------------------
-        # RULE 3: RIGHT visible → control with tolerance band (no vy)
+        # RULE 3: RIGHT visible → control with tolerance band (holonomic)
         #----------------------------------------------------------
         elif math.isfinite(min_right):
             # error > 0 → too far; error < 0 → too close
@@ -165,45 +170,56 @@ class WallFollowerHolonomic(Node):
                 twist.angular.z = 0.0
                 action = (
                     f"RIGHT ~OK ({min_right:.2f} m, target "
-                    f"{self.base_distance:.2f}±{self.tol:.2f}) → STRAIGHT"
+                    f"{self.base_distance:.2f}±{self.tol:.2f}) → FORWARD"
                 )
 
             elif error < 0:
-                # Too close to right wall → slow forward + stronger left turn
-                twist.linear.x = self.v_lin * 0.5
-                twist.linear.y = 0.0
-                twist.angular.z = self.v_ang * 2.0
+                # Too close to right wall → strafe away (left) while moving forward
+                twist.linear.x = self.v_lin * 0.7
+                twist.linear.y = self.v_ang * 1.5  # strafe left
+                twist.angular.z = 0.0
                 action = (
                     f"RIGHT too CLOSE ({min_right:.2f} m < "
                     f"{self.base_distance:.2f}-{self.tol:.2f}) → "
-                    f"forward + strong LEFT turn"
+                    f"forward + strafe LEFT"
                 )
 
             else:
-                # Too far from right wall → slow forward + stronger right turn
-                twist.linear.x = self.v_lin * 0.5
-                twist.linear.y = 0.0
-                twist.angular.z = -self.v_ang * 2.0
+                # Too far from right wall → strafe toward wall (right) while moving forward
+                twist.linear.x = self.v_lin * 0.7
+                twist.linear.y = -self.v_ang * 1.5  # strafe right toward wall
+                twist.angular.z = 0.0
                 action = (
                     f"RIGHT too FAR ({min_right:.2f} m > "
                     f"{self.base_distance:.2f}+{self.tol:.2f}) → "
-                    f"forward + strong RIGHT turn"
+                    f"forward + strafe RIGHT"
                 )
 
         #----------------------------------------------------------
-        # RULE 4: BACK-RIGHT → only if it is the most relevant wall
+        # RULE 4: BACK-RIGHT → strafe forward-right
         #----------------------------------------------------------
         elif math.isfinite(min_back_right) and (
             not math.isfinite(min_right) or min_back_right <= min_right
         ):
-            twist.linear.x = self.v_lin * 0.1
-            twist.linear.y = 0.0
-            twist.angular.z = -2.0 * self.v_ang
+            twist.linear.x = self.v_lin * 0.6
+            twist.linear.y = -self.v_ang * 1.0  # strafe right
+            twist.angular.z = 0.0
             action = (
                 f"BACK-RIGHT {min_back_right:.2f} m → "
-                f"very slow + STRONG RIGHT turn (2*w)"
+                f"forward + strafe RIGHT"
             )
 
+        #----------------------------------------------------------
+        # RULE 5: BACK obstacle → strafe RIGHT
+        #----------------------------------------------------------
+        elif math.isfinite(min_back) and min_back < self.base_distance:
+            twist.linear.x = 0.0
+            twist.linear.y = -self.v_ang * 2.0  # strafe right
+            twist.angular.z = 0.0
+            action = (
+                f"BACK {min_back:.2f} m → strafe RIGHT"
+            )
+            
         # if nothing is visible, twist remains zero -> robot stops
 
         # Update last commanded twist (periodic timer will publish it)
