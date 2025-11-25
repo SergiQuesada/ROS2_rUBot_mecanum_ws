@@ -46,7 +46,7 @@ class WallFollowerHolonomic(Node):
         self.start_time_s = self.get_clock().now().nanoseconds * 1e-9
 
         self.get_logger().info(
-            "WallFollower (RIGHT tol, BACK_RIGHT when closest) - differential drive."
+            "WallFollower (Holonomic) - using lateral strafing for obstacle avoidance."
         )
 
     #--------------------------------------------------------------------
@@ -106,7 +106,7 @@ class WallFollowerHolonomic(Node):
         FR_RIGHT    = []
         RIGHT       = []
         BACK_RIGHT  = []
-        BACK = []
+        BACK        = []
 
         for i, d in enumerate(scan.ranges):
             if not math.isfinite(d):
@@ -124,96 +124,121 @@ class WallFollowerHolonomic(Node):
                 RIGHT.append(d)
             elif -160 <= ang < -110:
                 BACK_RIGHT.append(d)
-            elif ang < -160 or ang > 160:
+            elif ang > 160 or ang < -160:
                 BACK.append(d)
 
         # Minimal distances
-        min_front      = min(FRONT)      if FRONT      else float('inf')
-        min_fr_right   = min(FR_RIGHT)   if FR_RIGHT   else float('inf')
-        min_right      = min(RIGHT)      if RIGHT      else float('inf')
-        min_back_right = min(BACK_RIGHT) if BACK_RIGHT else float('inf')
-        min_back = min(BACK) if BACK else float('inf')
+        mins = {
+            'front': min(FRONT)      if FRONT      else float('inf'),
+            'fr_right': min(FR_RIGHT) if FR_RIGHT  else float('inf'),
+            'right': min(RIGHT)      if RIGHT      else float('inf'),
+            'back_right': min(BACK_RIGHT) if BACK_RIGHT else float('inf'),
+            'back': min(BACK)        if BACK       else float('inf'),
+        }
+
+        min_front      = mins['front']
+        min_fr_right   = mins['fr_right']
+        min_right      = mins['right']
+        min_back_right = mins['back_right']
+        min_back       = mins['back']
 
         twist = Twist()
         action = ""
 
+        # Safety thresholds
+        emergency_dist = 0.12                        # stop immediately if anything closer than this
+        close_thresh = min(max(0.18, self.base_distance * 0.6), 0.35)  # "very close" threshold
+        lateral_max = max(self.v_lin, self.v_ang * 1.5)  # clamp lateral speed
+
+        def clamp(v, a, b):
+            return max(a, min(b, v))
+
+        # EMERGENCY STOP: anything extremely close -> stop immediately
+        if min(min_front, min_fr_right, min_right, min_back_right, min_back) < emergency_dist:
+            twist = Twist()  # all zeros
+            action = f"EMERGENCY STOP (obstacle < {emergency_dist:.2f} m)"
         #----------------------------------------------------------
-        # RULE 1: FRONT obstacle → move LEFT (vy > 0)
+        # RULE 1: FRONT obstacle
+        #   - if very close: stop forward and strafe left until cleared
+        #   - if moderately close: slow forward + strafe left
         #----------------------------------------------------------
-        if min_front < self.base_distance:
+        elif min_front < close_thresh:
             twist.linear.x = 0.0
-            twist.linear.y = self.v_lin
+            twist.linear.y = clamp(self.v_ang * 1.8, -lateral_max, lateral_max)  # strong left strafe
             twist.angular.z = 0.0
-            action = f"FRONT {min_front:.2f} m → move LEFT"
+            action = f"FRONT very CLOSE {min_front:.2f} m → STOP FORWARD + STRAFE LEFT"
+        elif min_front < self.base_distance:
+            twist.linear.x = self.v_lin * 0.4
+            twist.linear.y = clamp(self.v_ang * 1.2, -lateral_max, lateral_max)  # gentle left strafe
+            twist.angular.z = 0.0
+            action = f"FRONT {min_front:.2f} m → slow FORWARD + STRAFE LEFT"
 
         #----------------------------------------------------------
-        # RULE 2: FRONT-RIGHT obstacle → move FRONT-LEFT (vx>0, vy>0)
+        # RULE 2: FRONT-RIGHT obstacle
+        #   - if very close: stop forward and strafe left
+        #   - else: forward + left strafe but slower
         #----------------------------------------------------------
+        elif min_fr_right < close_thresh:
+            twist.linear.x = 0.0
+            twist.linear.y = clamp(self.v_ang * 1.5, -lateral_max, lateral_max)
+            twist.angular.z = 0.0
+            action = f"FRONT-RIGHT VERY CLOSE {min_fr_right:.2f} m → STOP FORWARD + STRAFE LEFT"
         elif min_fr_right < self.base_distance:
             twist.linear.x = self.v_lin * 0.6
-            twist.linear.y = self.v_lin * 0.6
-            twist.angular.z = 0
-            action = f"FRONT-RIGHT {min_fr_right:.2f} m → move FRONT-LEFT"
+            twist.linear.y = clamp(self.v_ang * 1.0, -lateral_max, lateral_max)
+            twist.angular.z = 0.0
+            action = f"FRONT-RIGHT {min_fr_right:.2f} m → FORWARD + STRAFE LEFT"
 
         #----------------------------------------------------------
-        # RULE 3: RIGHT visible → control with tolerance band (no vy)
+        # RULE 3: RIGHT visible → move forward and maintain orientation parallel to the wall
+        #   - use lateral proportional control, clamp speeds
         #----------------------------------------------------------
         elif math.isfinite(min_right):
-            # error > 0 → massa lluny; error < 0 → massa a prop
+            # error > 0 → too far; error < 0 → too close
             error = min_right - self.base_distance
 
+            k_lat = 1.2  # lateral gain
+            lateral = -k_lat * error
+            lateral = clamp(lateral, -lateral_max, lateral_max)
+
+            twist.linear.x = self.v_lin
+            twist.linear.y = lateral
+            twist.angular.z = 0.0
+
             if abs(error) <= self.tol:
-                # Dins de la banda: anar recte (només endavant)
-                twist.linear.x = self.v_lin
-                twist.linear.y = 0.0
-                twist.angular.z = 0.0
-                action = f"RIGHT ~OK ({min_right:.2f} m) → STRAIGHT FORWARD"
-
+                action = (
+                    f"RIGHT ~OK ({min_right:.2f} m) → FORWARD (maintain)"
+                )
             elif error < 0:
-                # Massa a prop de la paret dreta → moure's a l'esquerra (lateral)
-                twist.linear.x = self.v_lin * 0.7  # Endavant lent
-                twist.linear.y = self.v_lin * 0.7  # Lateral Esquerra
-                twist.angular.z = 0.0         # No gira
-                action = f"RIGHT too CLOSE ({min_right:.2f} m) → move LEFT"
-
+                action = (
+                    f"RIGHT too CLOSE ({min_right:.2f} m) → FORWARD + strafe LEFT"
+                )
             else:
-                # Massa lluny de la paret dreta → moure's a la dreta (lateral)
-                twist.linear.x = self.v_lin * 0.7  # Endavant lent
-                twist.linear.y = -self.v_lint * 0.7 # Lateral Dreta (y negatiu)
-                twist.angular.z = 0.0         # No gira
-                action = f"RIGHT too FAR ({min_right:.2f} m) → move RIGHT"
+                action = (
+                    f"RIGHT too FAR ({min_right:.2f} m) → FORWARD + strafe RIGHT"
+                )
 
         #----------------------------------------------------------
-        # RULE 4: BACK-RIGHT → move FRONT-RIGHT (vx>0, vy<0)
+        # RULE 4: BACK-RIGHT -> avoid by moving forward+right (but ensure not moving into front obstacle)
         #----------------------------------------------------------
         elif math.isfinite(min_back_right) and (
-            not math.isfinite(min_right) or min_back_right <= min_right):
-            twist.linear.x = self.v_lin * 0.5
-            twist.linear.y = - self.v_lin * 1
+            not math.isfinite(min_right) or min_back_right <= min_right
+        ):
+            twist.linear.x = self.v_lin * 0.6
+            twist.linear.y = clamp(-self.v_ang * 1.0, -lateral_max, lateral_max)  # right strafe
             twist.angular.z = 0.0
-            action = (
-                f"BACK-RIGHT {min_back_right:.2f} m → move FRONT-RIGHT"
-            )
+            action = f"BACK-RIGHT {min_back_right:.2f} m → FORWARD + STRAFE RIGHT"
 
         #----------------------------------------------------------
-        # RULE 5: BACK → move RIGHT (vy < 0)
+        # RULE 5: BACK obstacle -> move right (strafe) to clear
         #----------------------------------------------------------
-        elif min_back < self.base_distance:
+        elif math.isfinite(min_back) and min_back < self.base_distance:
             twist.linear.x = 0.0
-            twist.linear.y = -self.v_lin
+            twist.linear.y = clamp(-self.v_ang * 1.6, -lateral_max, lateral_max)
             twist.angular.z = 0.0
-            action = f"BACK {min_back:.2f} m → MOVE RIGHT"
+            action = f"BACK {min_back:.2f} m → STRAFE RIGHT"
 
-        
-        #----------------------------------------------------------
-        # RULE 6: No wall detected (Fallback)
-        #----------------------------------------------------------
-        else:
-            # Si no es detecta cap paret rellevant, o el robot està girant a una cantonada
-            twist.linear.x = v_lin * 0.5
-            twist.linear.y = 0.0
-            twist.angular.z = v_ang * 0.5 # Gira suaument cap a la paret
-            action = "No wall detected → slow forward + mild turn right"
+        # else: nothing detected, keep zero (robot stops)
 
         # Update last commanded twist (periodic timer will publish it)
         self.cmd = twist
