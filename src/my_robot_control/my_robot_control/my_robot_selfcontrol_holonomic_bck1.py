@@ -5,18 +5,22 @@ from geometry_msgs.msg import Twist
 import math
 
 
+
 class RobotSelfControlHolonomic(Node):
 
-    def __init__(self):
-        super().__init__('robot_selfcontrol_holonomic')
+
+    def _init_(self):
+        super()._init_('robot_selfcontrol_holonomic_node')
+
 
         # Configurable parameters
-        self.declare_parameter('distance_limit', 0.3)
+        self.declare_parameter('distance_limit', 0.2)
         self.declare_parameter('speed_factor', 1.0)
         self.declare_parameter('forward_speed', 0.2)
         self.declare_parameter('strafe_speed', 0.2)
         self.declare_parameter('rotation_speed', 0.3)
         self.declare_parameter('time_to_stop', 5.0)
+
 
         self._distanceLimit = self.get_parameter('distance_limit').value
         self._speedFactor = self.get_parameter('speed_factor').value
@@ -25,24 +29,28 @@ class RobotSelfControlHolonomic(Node):
         self._rotationSpeed = self.get_parameter('rotation_speed').value
         self._time_to_stop = self.get_parameter('time_to_stop').value
 
+
         self._msg = Twist()
         self._msg.linear.x = self._forwardSpeed * self._speedFactor
-        self._msg.linear.y = 0.0
+        self._msg.linear.y = 0.0  # For holonomic: sideways motion
         self._msg.angular.z = 0.0
+
 
         self._cmdVel = self.create_publisher(Twist, '/cmd_vel', 10)
         self.timer = self.create_timer(0.05, self.timer_callback)
+
 
         self.subscription = self.create_subscription(
             LaserScan,
             '/scan',
             self.laser_callback,
-            10  # Default QoS depth
+            10
         )
         self.start_time = self.get_clock().now().nanoseconds * 1e-9
         self._shutting_down = False
         self._last_info_time = self.start_time
         self._last_speed_time = self.start_time
+
 
     def timer_callback(self):
         if self._shutting_down:
@@ -50,10 +58,14 @@ class RobotSelfControlHolonomic(Node):
         now_sec = self.get_clock().now().nanoseconds * 1e-9
         elapsed_time = now_sec - self.start_time
 
+
         self._cmdVel.publish(self._msg)
 
+
         if now_sec - self._last_speed_time >= 1:
-            self.get_logger().info(f"Vx: {self._msg.linear.x:.2f} m/s, Vy: {self._msg.linear.y:.2f} m/s, w: {self._msg.angular.z:.2f} rad/s | Time: {elapsed_time:.1f}s")
+            self.get_logger().info(
+                f"Vx: {self._msg.linear.x:.2f} m/s, Vy: {self._msg.linear.y:.2f} m/s, w: {self._msg.angular.z:.2f} rad/s | Time: {elapsed_time:.1f}s"
+            )
             self._last_speed_time = now_sec
         if elapsed_time >= self._time_to_stop:
             self.stop()
@@ -61,17 +73,18 @@ class RobotSelfControlHolonomic(Node):
             self.get_logger().info("Robot stopped")
             rclpy.try_shutdown()
 
+
     def laser_callback(self, scan):
         if self._shutting_down:
             return
 
+
         angle_min_deg = scan.angle_min * 180.0 / 3.14159
         angle_increment_deg = scan.angle_increment * 180.0 / 3.14159
 
-        # Filter valid readings within [-150°, 150°]
+
         custom_range = []
         for i, distance in enumerate(scan.ranges):
-            # Angle on robot
             angle_robot_deg = angle_min_deg + i * angle_increment_deg
             if angle_robot_deg > 180.0:
                 angle_robot_deg -= 360.0
@@ -81,13 +94,12 @@ class RobotSelfControlHolonomic(Node):
                 continue
             if -150 < angle_robot_deg < 150:
                 custom_range.append((distance, angle_robot_deg))
-            else:
-                continue
+
 
         if not custom_range:
             return
-        # choose the closest reading explicitly by distance
-        closest_distance, angle_closest_distance = min(custom_range, key=lambda x: x[0])
+        closest_distance, angle_closest_distance = min(custom_range)
+
 
         # Determine zone
         if -45 <= angle_closest_distance <= 45:
@@ -103,13 +115,16 @@ class RobotSelfControlHolonomic(Node):
         else:
             zone = "OUTSIDE FOV"
 
+
         now = self.get_clock().now().nanoseconds * 1e-9
         if now - self._last_info_time >= 1:
-            self.get_logger().info(f"[DETECTION] Distance: {closest_distance:.2f} m | Angle: {angle_closest_distance:.0f}° | Zone: {zone}")
+            self.get_logger().info(
+                f"[DETECTION] Distance: {closest_distance:.2f} m | Angle: {angle_closest_distance:.0f}° | Zone: {zone}"
+            )
             self._last_info_time = now
 
 
-# Holonomic reactions to obstacles
+        # Holonomic reactions to obstacles
         if closest_distance < self._distanceLimit:
             if zone == "FRONT":
                 # Move backward and rotate
@@ -168,5 +183,6 @@ def main(args=None):
         robot.destroy_node()
 
 
-if __name__ == '__main__':
+
+if _name_ == '_main_':
     main()
