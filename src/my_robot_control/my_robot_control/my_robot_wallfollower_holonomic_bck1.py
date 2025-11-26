@@ -6,24 +6,20 @@ from sensor_msgs.msg import LaserScan
 from geometry_msgs.msg import Twist
 
 
-class WallFollower(Node):
+class WallFollowerHolonomic(Node):
     def __init__(self):
-        super().__init__('wall_follower_node')
+        super().__init__('wall_follower_holonomic_node')
 
         # Parameters
         self.declare_parameter('distance_limit', 0.5)    # desired distance to right wall
         self.declare_parameter('forward_speed', 0.20)    # linear speed
         self.declare_parameter('turn_speed', 0.40)       # angular speed
-        self.declare_parameter('side_speed', 0.18)       # lateral speed for holonomic
-        self.declare_parameter('side_kp', 0.8)          # lateral P gain for wall-centering
         self.declare_parameter('time_to_stop', 30.0)     # auto-stop
         self.declare_parameter('tolerance', 0.05)        # band around base_distance (RIGHT)
 
         self.base_distance = float(self.get_parameter('distance_limit').value)
         self.v_lin = float(self.get_parameter('forward_speed').value)
         self.v_ang = float(self.get_parameter('turn_speed').value)
-        self.v_side = float(self.get_parameter('side_speed').value)
-        self.side_kp = float(self.get_parameter('side_kp').value)
         self.time_to_stop = float(self.get_parameter('time_to_stop').value)
         self.tol = float(self.get_parameter('tolerance').value)
 
@@ -110,7 +106,7 @@ class WallFollower(Node):
         FR_RIGHT    = []
         RIGHT       = []
         BACK_RIGHT  = []
-        BACK        = []
+        BACK = []
 
         for i, d in enumerate(scan.ranges):
             if not math.isfinite(d):
@@ -128,7 +124,7 @@ class WallFollower(Node):
                 RIGHT.append(d)
             elif -160 <= ang < -110:
                 BACK_RIGHT.append(d)
-            elif ang <= -160 or ang >= 160:
+            elif ang < -160 or ang > 160:
                 BACK.append(d)
 
         # Minimal distances
@@ -136,64 +132,88 @@ class WallFollower(Node):
         min_fr_right   = min(FR_RIGHT)   if FR_RIGHT   else float('inf')
         min_right      = min(RIGHT)      if RIGHT      else float('inf')
         min_back_right = min(BACK_RIGHT) if BACK_RIGHT else float('inf')
-        min_back       = min(BACK) if BACK else float('inf')
+        min_back = min(BACK) if BACK else float('inf')
 
         twist = Twist()
         action = ""
 
         #----------------------------------------------------------
-        # RULE 1: FRONT obstacle -> move front-left (holonomic)
+        # RULE 1: FRONT obstacle → move LEFT (vy > 0)
         #----------------------------------------------------------
         if min_front < self.base_distance:
-            twist.linear.x = self.v_lin * 0.25
-            twist.linear.y = +self.v_side
+            twist.linear.x = 0.0
+            twist.linear.y = self.v_lin
             twist.angular.z = 0.0
-            action = f"FRONT {min_front:.2f} m -> MOVE FRONT-LEFT"
+            action = f"FRONT {min_front:.2f} m → move LEFT"
 
         #----------------------------------------------------------
-        # RULE 2: FRONT-RIGHT obstacle -> move front-left
+        # RULE 2: FRONT-RIGHT obstacle → move FRONT-LEFT (vx>0, vy>0)
         #----------------------------------------------------------
         elif min_fr_right < self.base_distance:
-            twist.linear.x = self.v_lin * 0.25
-            twist.linear.y = +self.v_side
-            twist.angular.z = 0.0
-            action = f"FRONT-RIGHT {min_fr_right:.2f} m -> MOVE FRONT-LEFT"
+            twist.linear.x = self.v_lin * 0.6
+            twist.linear.y = self.v_lin * 0.6
+            twist.angular.z = 0
+            action = f"FRONT-RIGHT {min_fr_right:.2f} m → move FRONT-LEFT"
 
         #----------------------------------------------------------
-        # RULE 3: RIGHT visible -> move forward and maintain parallel (no angular)
+        # RULE 3: RIGHT visible → control with tolerance band (no vy)
         #----------------------------------------------------------
         elif math.isfinite(min_right):
-            # lateral correction vy = -kp * error (error = measured - desired)
+            # error > 0 → massa lluny; error < 0 → massa a prop
             error = min_right - self.base_distance
-            vy = -self.side_kp * error
-            # clamp lateral speed
-            vy = max(-self.v_side, min(self.v_side, vy))
-            twist.linear.x = self.v_lin
-            twist.linear.y = vy
+
+            if abs(error) <= self.tol:
+                # Dins de la banda: anar recte (només endavant)
+                twist.linear.x = self.v_lin
+                twist.linear.y = 0.0
+                twist.angular.z = 0.0
+                action = f"RIGHT ~OK ({min_right:.2f} m) → STRAIGHT FORWARD"
+
+            elif error < 0:
+                # Massa a prop de la paret dreta → moure's a l'esquerra (lateral)
+                twist.linear.x = self.v_lin * 0.7  # Endavant lent
+                twist.linear.y = self.v_lin * 0.7  # Lateral Esquerra
+                twist.angular.z = 0.0         # No gira
+                action = f"RIGHT too CLOSE ({min_right:.2f} m) → move LEFT"
+
+            else:
+                # Massa lluny de la paret dreta → moure's a la dreta (lateral)
+                twist.linear.x = self.v_lin * 0.7  # Endavant lent
+                twist.linear.y = -self.v_lint * 0.7 # Lateral Dreta (y negatiu)
+                twist.angular.z = 0.0         # No gira
+                action = f"RIGHT too FAR ({min_right:.2f} m) → move RIGHT"
+
+        #----------------------------------------------------------
+        # RULE 4: BACK-RIGHT → move FRONT-RIGHT (vx>0, vy<0)
+        #----------------------------------------------------------
+        elif math.isfinite(min_back_right) and (
+            not math.isfinite(min_right) or min_back_right <= min_right):
+            twist.linear.x = self.v_lin * 0.5
+            twist.linear.y = - self.v_lin * 1
             twist.angular.z = 0.0
             action = (
-                f"RIGHT {min_right:.2f} m -> FORWARD (vy={vy:.2f}) maintain parallel"
+                f"BACK-RIGHT {min_back_right:.2f} m → move FRONT-RIGHT"
             )
 
         #----------------------------------------------------------
-        # RULE 4: BACK-RIGHT -> move front-right
+        # RULE 5: BACK → move RIGHT (vy < 0)
         #----------------------------------------------------------
-        elif math.isfinite(min_back_right) and (
-            not math.isfinite(min_right) or min_back_right <= min_right
-        ):
-            twist.linear.x = self.v_lin * 0.25
-            twist.linear.y = -self.v_side
-            twist.angular.z = 0.0
-            action = f"BACK-RIGHT {min_back_right:.2f} m -> MOVE FRONT-RIGHT"
-
-        #----------------------------------------------------------
-        # RULE 5: BACK -> strafe right
-        #----------------------------------------------------------
-        elif math.isfinite(min_back):
+        elif min_back < self.base_distance:
             twist.linear.x = 0.0
-            twist.linear.y = -self.v_side
+            twist.linear.y = -self.v_lin
             twist.angular.z = 0.0
-            action = f"BACK {min_back:.2f} m -> MOVE RIGHT"
+            action = f"BACK {min_back:.2f} m → MOVE RIGHT"
+
+        
+        #----------------------------------------------------------
+        # RULE 6: No wall detected (Fallback)
+        #----------------------------------------------------------
+        else:
+            # Si no es detecta cap paret rellevant, o el robot està girant a una cantonada
+            twist.linear.x = v_lin * 0.5
+            twist.linear.y = 0.0
+            twist.angular.z = v_ang * 0.5 # Gira suaument cap a la paret
+            action = "No wall detected → slow forward + mild turn right"
 
         # Update last commanded twist (periodic timer will publish it)
         self.cmd = twist
@@ -212,7 +232,7 @@ class WallFollower(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    node = WallFollower()
+    node = WallFollowerHolonomic()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
