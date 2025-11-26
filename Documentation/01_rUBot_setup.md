@@ -111,11 +111,12 @@ When you power the rUBot mecanum robot, it connects to the wifi `local network: 
   source /usr/share/colcon_argcomplete/hook/colcon-argcomplete.bash
   source /home/student/Desktop/ROS2_rUBot_mecanum_ws/install/setup.bash
   cd /home/student/Desktop/ROS2_rUBot_mecanum_ws
-  export ROS_DOMAIN_ID=x # change on group number
-  export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
   export GAZEBO_MODEL_PATH=/home/student/Desktop/ROS2_rUBot_mecanum_ws/src/my_robot_bringup/models:$GAZEBO_MODEL_PATH
   export QT_QPA_PLATFORM=xcb # Best for RVIZ2
-  export ROS_LOCALHOST_ONLY=0 # To allow communication with other computers in the same network
+  export ROS_DOMAIN_ID=1               # group/domain ID
+  export ROS_LOCALHOST_ONLY=0          # allow communication with other machines
+  export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+  export CYCLONEDDS_URI=file:///home/student/Desktop/ROS2_rUBot_mecanum_ws/config/cyclonedds_pc.xml
   #git config --global user.email "xxx@alumnes.ub.edu"
   #git config --global user.name "your_github_username"
   ````
