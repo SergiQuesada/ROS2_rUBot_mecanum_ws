@@ -207,18 +207,39 @@ class WallFollower(Node):
             )
 
         #----------------------------------------------------------
-        # RULE 3b: LEFT visible -> move forward and maintain parallel (mirror)
+        # RULE 3b: LEFT visible -> wall-following (mirror of RIGHT)
+        # Improve behavior: when too close to left, reduce forward and strafe right
+        # to avoid collisions; when inside tolerance go straight; when far, gently
+        # move left to re-acquire the wall. This avoids the diagonal-right bounce
+        # when a left wall ends.
         #----------------------------------------------------------
         elif math.isfinite(min_left):
             error = min_left - self.base_distance
-            vy = +self.side_kp * error
-            vy = max(-self.v_side, min(self.v_side, vy))
-            twist.linear.x = self.v_lin
-            twist.linear.y = vy
-            twist.angular.z = 0.0
-            action = (
-                f"LEFT {min_left:.2f} m -> FORWARD (vy={vy:.2f}) maintain parallel"
-            )
+            # Too close to left -> back off to the right while slowing forward
+            if error < -self.tol:
+                twist.linear.x = self.v_lin * 0.3
+                twist.linear.y = -self.v_side
+                twist.angular.z = 0.0
+                action = (
+                    f"LEFT too CLOSE {min_left:.2f} m -> slow forward + STRAFE RIGHT"
+                )
+            # Within tolerance -> go straight and keep orientation
+            elif abs(error) <= self.tol:
+                twist.linear.x = self.v_lin
+                twist.linear.y = 0.0
+                twist.angular.z = 0.0
+                action = (
+                    f"LEFT ~OK ({min_left:.2f} m) -> STRAIGHT"
+                )
+            # Too far from left -> gently move left to re-acquire wall
+            else:
+                twist.linear.x = self.v_lin * 0.6
+                vy = +min(self.v_side, self.side_kp * error)
+                twist.linear.y = vy
+                twist.angular.z = 0.0
+                action = (
+                    f"LEFT too FAR {min_left:.2f} m -> forward + STRAFE LEFT (vy={vy:.2f})"
+                )
 
         #----------------------------------------------------------
         # RULE 4: BACK-RIGHT -> move front-right
