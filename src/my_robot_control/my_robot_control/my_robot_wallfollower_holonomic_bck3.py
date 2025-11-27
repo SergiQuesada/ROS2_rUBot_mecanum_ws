@@ -53,10 +53,6 @@ class WallFollower(Node):
             "WallFollower (RIGHT tol, BACK_RIGHT when closest) - differential drive."
         )
 
-        # Minimal state for corner handling (see user request)
-        self.front_blocked = False
-        self.backing = False
-
     #--------------------------------------------------------------------
     def stop_watchdog(self):
         """Stop the robot after time_to_stop seconds."""
@@ -115,9 +111,6 @@ class WallFollower(Node):
         RIGHT       = []
         BACK_RIGHT  = []
         BACK        = []
-        BACK_LEFT   = []
-        LEFT        = []
-        FRONT_LEFT  = []
         
         for i, d in enumerate(scan.ranges):
             if not math.isfinite(d):
@@ -137,12 +130,6 @@ class WallFollower(Node):
                 BACK_RIGHT.append(d)
             elif ang <= -160 or ang >= 160:
                 BACK.append(d)
-            elif 110 <= ang < 160:
-                BACK_LEFT.append(d)
-            elif 70 <= ang < 110:
-                LEFT.append(d)
-            elif 20 < ang < 70:
-                FRONT_LEFT.append(d)
 
         # Minimal distances
         min_front      = min(FRONT)      if FRONT      else float('inf')
@@ -150,64 +137,18 @@ class WallFollower(Node):
         min_right      = min(RIGHT)      if RIGHT      else float('inf')
         min_back_right = min(BACK_RIGHT) if BACK_RIGHT else float('inf')
         min_back       = min(BACK) if BACK else float('inf')
-        min_back_left  = min(BACK_LEFT) if BACK_LEFT else float('inf')
-        min_left       = min(LEFT) if LEFT else float('inf')
-        min_front_left = min(FRONT_LEFT) if FRONT_LEFT else float('inf')
 
         twist = Twist()
         action = ""
 
-        # ------------------ Corner / front handling ------------------
-        # If something is in front, start a corner-handling state:
-        #  - when front detected -> strafe left and remember front_blocked
-        #  - while front_blocked: if left clears -> advance (forward-left)
-        #    otherwise back up until left clears; if back is blocked -> move right
+        #----------------------------------------------------------
+        # RULE 1: FRONT obstacle -> move front-left (holonomic)
+        #----------------------------------------------------------
         if min_front < self.base_distance:
-            # immediate front obstacle: move left and mark blocked
-            self.front_blocked = True
-            self.backing = False
             twist.linear.x = self.v_lin * 0.25
             twist.linear.y = +self.v_side
             twist.angular.z = 0.0
-            action = f"FRONT {min_front:.2f} m -> STRAFE LEFT (start corner handling)"
-
-        elif self.front_blocked:
-            # we previously hit something in front; try to resolve
-            # if left side is free, try to go forward-left and clear the flag
-            if min_left > self.base_distance + self.tol:
-                twist.linear.x = self.v_lin * 0.5
-                twist.linear.y = +self.v_side
-                twist.angular.z = 0.0
-                action = (
-                    f"FRONT_BLOCKED: left cleared (left={min_left:.2f}) -> FORWARD-LEFT and resume"
-                )
-                self.front_blocked = False
-                self.backing = False
-
-            else:
-                # left still blocked / corner not cleared: if still blocked in front, back up
-                if min_front < self.base_distance:
-                    twist.linear.x = -self.v_lin * 0.25
-                    twist.linear.y = 0.0
-                    twist.angular.z = 0.0
-                    self.backing = True
-                    action = f"FRONT_BLOCKED: still front {min_front:.2f} -> BACKING"
-
-                # if we are backing and there's an obstacle behind, try to move right to escape
-                elif self.backing and min_back < self.base_distance:
-                    twist.linear.x = 0.0
-                    twist.linear.y = -self.v_side
-                    twist.angular.z = 0.0
-                    action = (
-                        f"FRONT_BLOCKED: back blocked {min_back:.2f} -> MOVE RIGHT to escape"
-                    )
-
-                else:
-                    # keep trying to slide left slowly while monitoring
-                    twist.linear.x = self.v_lin * 0.15
-                    twist.linear.y = +self.v_side
-                    twist.angular.z = 0.0
-                    action = "FRONT_BLOCKED: sliding LEFT while waiting for clearance"
+            action = f"FRONT {min_front:.2f} m -> MOVE FRONT-LEFT"
 
         #----------------------------------------------------------
         # RULE 2: FRONT-RIGHT obstacle -> move front-left
