@@ -46,7 +46,7 @@ class WallFollower(Node):
         self.start_time_s = self.get_clock().now().nanoseconds * 1e-9
 
         self.get_logger().info(
-            "WallFollower (HOLONOMIC, 8 sectors) - strafing capable."
+            "WallFollower (RIGHT tol, holonomic wall follower)."
         )
 
     #--------------------------------------------------------------------
@@ -102,14 +102,14 @@ class WallFollower(Node):
         angle_min = math.degrees(scan.angle_min)
         angle_inc = math.degrees(scan.angle_increment)
 
-        FRONT       = []
-        FR_RIGHT    = []
-        RIGHT       = []
-        BACK_RIGHT  = []
-        BACK        = []
-        BACK_LEFT   = []
-        LEFT        = []
-        FR_LEFT     = []
+        FRONT      = []
+        FR_RIGHT   = []
+        RIGHT      = []
+        BACK_RIGHT = []
+        BACK       = []
+        BACK_LEFT  = []
+        LEFT       = []
+        FRONT_LEFT = []
 
         for i, d in enumerate(scan.ranges):
             if not math.isfinite(d):
@@ -119,25 +119,26 @@ class WallFollower(Node):
 
             ang = angle_min + i * angle_inc
 
-            # assign degrees to 8 sectors (bounds approximated to match original code ranges)
-            if -22.5 <= ang <= 22.5:
+            # original right-side regions
+            if -20 <= ang <= 20:
                 FRONT.append(d)
-            elif -67.5 < ang < -22.5:
+            elif -70 <= ang < -20:
                 FR_RIGHT.append(d)
-            elif -112.5 <= ang <= -67.5:
+            elif -110 <= ang < -70:
                 RIGHT.append(d)
-            elif -157.5 < ang < -112.5:
+            elif -160 <= ang < -110:
                 BACK_RIGHT.append(d)
-            elif ang > 157.5 or ang <= -157.5:
+            # new regions to complete 360°
+            elif 160 <= ang or ang < -160:
                 BACK.append(d)
-            elif 112.5 < ang <= 157.5:
+            elif 110 <= ang < 160:
                 BACK_LEFT.append(d)
-            elif 67.5 < ang <= 112.5:
+            elif 70 <= ang < 110:
                 LEFT.append(d)
-            elif 22.5 < ang <= 67.5:
-                FR_LEFT.append(d)
+            elif 20 < ang < 70:
+                FRONT_LEFT.append(d)
 
-        # Minimal distances for all sectors
+        # Minimal distances
         min_front      = min(FRONT)      if FRONT      else float('inf')
         min_fr_right   = min(FR_RIGHT)   if FR_RIGHT   else float('inf')
         min_right      = min(RIGHT)      if RIGHT      else float('inf')
@@ -145,113 +146,136 @@ class WallFollower(Node):
         min_back       = min(BACK)       if BACK       else float('inf')
         min_back_left  = min(BACK_LEFT)  if BACK_LEFT  else float('inf')
         min_left       = min(LEFT)       if LEFT       else float('inf')
-        min_fr_left    = min(FR_LEFT)    if FR_LEFT    else float('inf')
+        min_front_left = min(FRONT_LEFT) if FRONT_LEFT else float('inf')
+
+        # find globally closest region
+        dists = {
+            "FRONT":      min_front,
+            "FR_RIGHT":   min_fr_right,
+            "RIGHT":      min_right,
+            "BACK_RIGHT": min_back_right,
+            "BACK":       min_back,
+            "BACK_LEFT":  min_back_left,
+            "LEFT":       min_left,
+            "FRONT_LEFT": min_front_left,
+        }
+        closest_region = min(dists, key=dists.get)
+        closest_dist   = dists[closest_region]
 
         twist = Twist()
         action = ""
 
-        # helper: orientation correction using front vs back readings on the same side
-        def orient_correction(front_dist, back_dist, sign=1.0):
-            if not math.isfinite(front_dist) or not math.isfinite(back_dist):
-                return 0.0
-            diff = front_dist - back_dist
-            return sign * self.v_ang * 0.5 * (diff / (self.base_distance + 1e-6))
+        # if no obstacle is seen at all, stop
+        if not math.isfinite(closest_dist):
+            self.cmd = twist
+            if action != self._last_action_logged:
+                self.get_logger().info("No action (stopped).")
+                self._last_action_logged = ""
+            self._state_action = "Stopped (no wall detected)"
+            return
 
-        # Choose the closest sector (smallest distance)
-        sectors = {
-            'FRONT': min_front,
-            'FRONT_RIGHT': min_fr_right,
-            'RIGHT': min_right,
-            'BACK_RIGHT': min_back_right,
-            'BACK': min_back,
-            'BACK_LEFT': min_back_left,
-            'LEFT': min_left,
-            'FRONT_LEFT': min_fr_left,
-        }
-
-        closest = min(sectors, key=lambda k: sectors[k])
-        closest_dist = sectors[closest]
-
-        # Map closest sector to holonomic motion (linear.x forward, linear.y left)
-        if closest_dist == float('inf'):
-            # If no wall is detected at all, move forward
-            twist.linear.x = self.v_lin
-            twist.linear.y = 0.0
-            twist.angular.z = 0.0
-            action = "No wall detected -> FORWARD"
-
-        elif closest == 'FRONT' and closest_dist < self.base_distance:
+        # ---------------- HOLONOMIC RULES ----------------
+        # FRONT: minimum in front → move left
+        if closest_region == "FRONT":
             twist.linear.x = 0.0
-            twist.linear.y = self.v_lin  # strafe left
+            twist.linear.y = self.v_lin
             twist.angular.z = 0.0
-            action = f"FRONT {closest_dist:.2f} m -> STRAFE LEFT"
+            action = f"FRONT {closest_dist:.2f} m → move LEFT (vy>0)"
 
-        elif closest == 'FRONT_RIGHT' and closest_dist < self.base_distance:
-            twist.linear.x = self.v_lin * 0.8
-            twist.linear.y = self.v_lin * 0.6  # forward-left
+        # FRONT-RIGHT: minimum in front-right → move front-left
+        elif closest_region == "FR_RIGHT":
+            twist.linear.x = self.v_lin * 0.5
+            twist.linear.y = self.v_lin * 0.5
             twist.angular.z = 0.0
-            action = f"FRONT-RIGHT {closest_dist:.2f} m -> FORWARD-LEFT"
+            action = f"FRONT-RIGHT {closest_dist:.2f} m → move FRONT-LEFT"
 
-        elif closest == 'RIGHT' and math.isfinite(closest_dist):
-            twist.linear.x = self.v_lin
-            twist.linear.y = 0.0
-            # keep parallel to wall using front-right and back-right
-            twist.angular.z = orient_correction(min_fr_right, min_back_right, sign=1.0)
-            action = f"RIGHT {closest_dist:.2f} m -> FORWARD, orient corr {twist.angular.z:.2f}"
-
-        elif closest == 'BACK_RIGHT' and closest_dist < self.base_distance:
-            twist.linear.x = self.v_lin * 0.8
-            twist.linear.y = -self.v_lin * 0.6  # forward-right
-            twist.angular.z = 0.0
-            action = f"BACK-RIGHT {closest_dist:.2f} m -> FORWARD-RIGHT"
-
-        elif closest == 'BACK' and closest_dist < self.base_distance:
-            twist.linear.x = 0.0
-            twist.linear.y = -self.v_lin  # strafe right
-            twist.angular.z = 0.0
-            action = f"BACK {closest_dist:.2f} m -> STRAFE RIGHT"
-
-        elif closest == 'BACK_LEFT' and closest_dist < self.base_distance:
-            # If obstacle at back-left, move forward-right to escape
-            twist.linear.x = self.v_lin * 0.8
-            twist.linear.y = -self.v_lin * 0.6  # forward-right
-            twist.angular.z = 0.0
-            action = f"BACK-LEFT {closest_dist:.2f} m -> FORWARD-RIGHT"
-
-        elif closest == 'LEFT' and math.isfinite(closest_dist):
-            # If too close to left wall, back+strafe-right to avoid cornering
-            if closest_dist < (self.base_distance + self.tol):
-                twist.linear.x = -0.5 * self.v_lin  # back up
-                twist.linear.y = -1.0 * self.v_lin  # strafe right
-                twist.angular.z = -self.v_ang * 0.5
-                action = f"LEFT {closest_dist:.2f} m -> BACK+STRAFE-RIGHT (avoid)"
-            else:
+        # RIGHT: minimum in right → go forward, maintain parallel to wall
+        elif closest_region == "RIGHT":
+            error = closest_dist - self.base_distance
+            if abs(error) <= self.tol:
                 twist.linear.x = self.v_lin
                 twist.linear.y = 0.0
-                twist.angular.z = orient_correction(min_fr_left, min_back_left, sign=-1.0)
-                action = f"LEFT {closest_dist:.2f} m -> FORWARD, orient corr {twist.angular.z:.2f}"
-
-        elif closest == 'FRONT_LEFT' and closest_dist < self.base_distance:
-            # If obstacle front-left and too close, back+strafe-right instead of moving closer
-            if closest_dist < (self.base_distance + self.tol):
-                twist.linear.x = -0.4 * self.v_lin  # back slowly
-                twist.linear.y = -1.0 * self.v_lin  # strafe right
-                twist.angular.z = -self.v_ang * 0.5
-                action = f"FRONT-LEFT {closest_dist:.2f} m -> BACK+STRAFE-RIGHT (avoid)"
-            else:
-                twist.linear.x = self.v_lin * 0.8
-                twist.linear.y = -self.v_lin * 0.6  # forward-right to escape left-front obstacle
                 twist.angular.z = 0.0
-                action = f"FRONT-LEFT {closest_dist:.2f} m -> FORWARD-RIGHT"
+                action = (
+                    f"RIGHT ~OK ({closest_dist:.2f} m, target "
+                    f"{self.base_distance:.2f}±{self.tol:.2f}) → FORWARD"
+                )
+            elif error < 0:
+                # too close → small left yaw
+                twist.linear.x = self.v_lin * 0.5
+                twist.linear.y = 0.0
+                twist.angular.z = self.v_ang * 0.5
+                action = (
+                    f"RIGHT too CLOSE ({closest_dist:.2f} m) → "
+                    f"forward + slight LEFT yaw"
+                )
+            else:
+                # too far → small right yaw
+                twist.linear.x = self.v_lin * 0.5
+                twist.linear.y = 0.0
+                twist.angular.z = -self.v_ang * 0.5
+                action = (
+                    f"RIGHT too FAR ({closest_dist:.2f} m) → "
+                    f"forward + slight RIGHT yaw"
+                )
 
-        # If no action was chosen above (e.g. all distances > base_distance),
-        # use a minimal fallback: move forward. This ensures the robot does
-        # not remain stopped with message "Stopped (no wall detected)".
-        if not action:
-            twist.linear.x = self.v_lin
-            twist.linear.y = 0.0
+        # BACK-RIGHT: minimum in back-right → move front-right
+        elif closest_region == "BACK_RIGHT":
+            twist.linear.x = self.v_lin * 0.5
+            twist.linear.y = -self.v_lin * 0.5
             twist.angular.z = 0.0
-            action = "Fallback -> FORWARD"
+            action = f"BACK-RIGHT {closest_dist:.2f} m → move FRONT-RIGHT"
+
+        # BACK: minimum in back → move right
+        elif closest_region == "BACK":
+            twist.linear.x = 0.0
+            twist.linear.y = -self.v_lin
+            twist.angular.z = 0.0
+            action = f"BACK {closest_dist:.2f} m → move RIGHT (vy<0)"
+
+        # BACK-LEFT: minimum in back-left → move front-right
+        elif closest_region == "BACK_LEFT":
+            twist.linear.x = self.v_lin * 0.5
+            twist.linear.y = -self.v_lin * 0.5
+            twist.angular.z = 0.0
+            action = f"BACK-LEFT {closest_dist:.2f} m → move FRONT-RIGHT"
+
+        # LEFT: minimum in left → mirror of RIGHT, go forward and keep parallel
+        elif closest_region == "LEFT":
+            error = closest_dist - self.base_distance
+            if abs(error) <= self.tol:
+                twist.linear.x = self.v_lin
+                twist.linear.y = 0.0
+                twist.angular.z = 0.0
+                action = (
+                    f"LEFT ~OK ({closest_dist:.2f} m, target "
+                    f"{self.base_distance:.2f}±{self.tol:.2f}) → FORWARD"
+                )
+            elif error < 0:
+                # too close to left wall → small right yaw
+                twist.linear.x = self.v_lin * 0.5
+                twist.linear.y = 0.0
+                twist.angular.z = -self.v_ang * 0.5
+                action = (
+                    f"LEFT too CLOSE ({closest_dist:.2f} m) → "
+                    f"forward + slight RIGHT yaw"
+                )
+            else:
+                # too far from left wall → small left yaw
+                twist.linear.x = self.v_lin * 0.5
+                twist.linear.y = 0.0
+                twist.angular.z = self.v_ang * 0.5
+                action = (
+                    f"LEFT too FAR ({closest_dist:.2f} m) → "
+                    f"forward + slight LEFT yaw"
+                )
+
+        # FRONT-LEFT: minimum in front-left → move front-right
+        elif closest_region == "FRONT_LEFT":
+            twist.linear.x = self.v_lin * 0.5
+            twist.linear.y = -self.v_lin * 0.5
+            twist.angular.z = 0.0
+            action = f"FRONT-LEFT {closest_dist:.2f} m → move FRONT-RIGHT"
 
         # Update last commanded twist (periodic timer will publish it)
         self.cmd = twist
@@ -268,6 +292,7 @@ class WallFollower(Node):
         if not self._shutting_down:
             self.get_logger().info(self._state_action)
 
+
 def main(args=None):
     rclpy.init(args=args)
     node = WallFollower()
@@ -283,6 +308,7 @@ def main(args=None):
 
         if rclpy.ok():
             rclpy.shutdown()
+
 
 if __name__ == '__main__':
     main()
