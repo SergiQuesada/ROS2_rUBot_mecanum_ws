@@ -216,8 +216,9 @@ class WallFollower(Node):
         elif min_left < self.base_distance and not self.left_blocked:
             self.left_blocked = True
             self.backing = True
+            # back and move RIGHT to increase clearance from left wall
             twist.linear.x = -self.v_lin * 0.25
-            twist.linear.y = 0.0
+            twist.linear.y = -self.v_side * 0.5
             twist.angular.z = 0.0
             action = f"LEFT too close ({min_left:.2f}) -> BACKING to clear front-left"
 
@@ -237,15 +238,17 @@ class WallFollower(Node):
                 # keep backing unless back is blocked, in which case move right
                 if self.backing:
                     if min_back < self.base_distance:
+                        # if back blocked, try sliding right in place to escape
                         twist.linear.x = 0.0
                         twist.linear.y = -self.v_side
                         twist.angular.z = 0.0
                         action = f"LEFT_BLOCKED: back blocked {min_back:.2f} -> MOVE RIGHT to escape"
                     else:
+                        # continue backing-right (diagonal) to clear front-left
                         twist.linear.x = -self.v_lin * 0.25
-                        twist.linear.y = 0.0
+                        twist.linear.y = -self.v_side * 0.5
                         twist.angular.z = 0.0
-                        action = f"LEFT_BLOCKED: backing (front-left={min_front_left:.2f})"
+                        action = f"LEFT_BLOCKED: backing-right (front-left={min_front_left:.2f})"
                 else:
                     twist.linear.x = -self.v_lin * 0.15
                     twist.linear.y = 0.0
