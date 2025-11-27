@@ -212,22 +212,37 @@ class WallFollower(Node):
             action = f"BACK {closest_dist:.2f} m -> STRAFE RIGHT"
 
         elif closest == 'BACK_LEFT' and closest_dist < self.base_distance:
+            # If obstacle at back-left, move forward-right to escape
             twist.linear.x = self.v_lin * 0.8
-            twist.linear.y = self.v_lin * 0.6  # forward-left
+            twist.linear.y = -self.v_lin * 0.6  # forward-right
             twist.angular.z = 0.0
-            action = f"BACK-LEFT {closest_dist:.2f} m -> FORWARD-LEFT"
+            action = f"BACK-LEFT {closest_dist:.2f} m -> FORWARD-RIGHT"
 
         elif closest == 'LEFT' and math.isfinite(closest_dist):
-            twist.linear.x = self.v_lin
-            twist.linear.y = 0.0
-            twist.angular.z = orient_correction(min_fr_left, min_back_left, sign=-1.0)
-            action = f"LEFT {closest_dist:.2f} m -> FORWARD, orient corr {twist.angular.z:.2f}"
+            # If too close to left wall, back+strafe-right to avoid cornering
+            if closest_dist < (self.base_distance + self.tol):
+                twist.linear.x = -0.5 * self.v_lin  # back up
+                twist.linear.y = -1.0 * self.v_lin  # strafe right
+                twist.angular.z = -self.v_ang * 0.5
+                action = f"LEFT {closest_dist:.2f} m -> BACK+STRAFE-RIGHT (avoid)"
+            else:
+                twist.linear.x = self.v_lin
+                twist.linear.y = 0.0
+                twist.angular.z = orient_correction(min_fr_left, min_back_left, sign=-1.0)
+                action = f"LEFT {closest_dist:.2f} m -> FORWARD, orient corr {twist.angular.z:.2f}"
 
         elif closest == 'FRONT_LEFT' and closest_dist < self.base_distance:
-            twist.linear.x = self.v_lin * 0.8
-            twist.linear.y = -self.v_lin * 0.6  # forward-right to escape left-front obstacle
-            twist.angular.z = 0.0
-            action = f"FRONT-LEFT {closest_dist:.2f} m -> FORWARD-RIGHT"
+            # If obstacle front-left and too close, back+strafe-right instead of moving closer
+            if closest_dist < (self.base_distance + self.tol):
+                twist.linear.x = -0.4 * self.v_lin  # back slowly
+                twist.linear.y = -1.0 * self.v_lin  # strafe right
+                twist.angular.z = -self.v_ang * 0.5
+                action = f"FRONT-LEFT {closest_dist:.2f} m -> BACK+STRAFE-RIGHT (avoid)"
+            else:
+                twist.linear.x = self.v_lin * 0.8
+                twist.linear.y = -self.v_lin * 0.6  # forward-right to escape left-front obstacle
+                twist.angular.z = 0.0
+                action = f"FRONT-LEFT {closest_dist:.2f} m -> FORWARD-RIGHT"
 
         # If no action was chosen above (e.g. all distances > base_distance),
         # use a minimal fallback: move forward. This ensures the robot does
