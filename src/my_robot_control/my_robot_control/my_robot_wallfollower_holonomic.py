@@ -174,7 +174,11 @@ class WallFollower(Node):
 
         # Map closest sector to holonomic motion (linear.x forward, linear.y left)
         if closest_dist == float('inf'):
-            action = "No wall detected -> stop"
+            # If no wall is detected at all, move forward
+            twist.linear.x = self.v_lin
+            twist.linear.y = 0.0
+            twist.angular.z = 0.0
+            action = "No wall detected -> FORWARD"
 
         elif closest == 'FRONT' and closest_dist < self.base_distance:
             twist.linear.x = 0.0
