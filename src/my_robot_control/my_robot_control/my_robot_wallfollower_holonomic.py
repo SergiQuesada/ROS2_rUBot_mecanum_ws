@@ -56,6 +56,7 @@ class WallFollower(Node):
         # Minimal state for corner handling (see user request)
         self.front_blocked = False
         self.backing = False
+        self.left_blocked = False
 
     #--------------------------------------------------------------------
     def stop_watchdog(self):
@@ -208,6 +209,48 @@ class WallFollower(Node):
                     twist.linear.y = +self.v_side
                     twist.angular.z = 0.0
                     action = "FRONT_BLOCKED: sliding LEFT while waiting for clearance"
+
+        # ------------------ LEFT collision handling ------------------
+        # If the robot detects the wall too close on the left side, back
+        # until front-left is clear and then strafe left to resume following.
+        elif min_left < self.base_distance and not self.left_blocked:
+            self.left_blocked = True
+            self.backing = True
+            twist.linear.x = -self.v_lin * 0.25
+            twist.linear.y = 0.0
+            twist.angular.z = 0.0
+            action = f"LEFT too close ({min_left:.2f}) -> BACKING to clear front-left"
+
+        elif self.left_blocked:
+            # if front-left clears, strafe left and resume
+            if min_front_left > self.base_distance + self.tol:
+                twist.linear.x = self.v_lin * 0.4
+                twist.linear.y = +self.v_side
+                twist.angular.z = 0.0
+                action = (
+                    f"LEFT_BLOCKED cleared (front-left={min_front_left:.2f}) -> STRAFE LEFT and resume"
+                )
+                self.left_blocked = False
+                self.backing = False
+
+            else:
+                # keep backing unless back is blocked, in which case move right
+                if self.backing:
+                    if min_back < self.base_distance:
+                        twist.linear.x = 0.0
+                        twist.linear.y = -self.v_side
+                        twist.angular.z = 0.0
+                        action = f"LEFT_BLOCKED: back blocked {min_back:.2f} -> MOVE RIGHT to escape"
+                    else:
+                        twist.linear.x = -self.v_lin * 0.25
+                        twist.linear.y = 0.0
+                        twist.angular.z = 0.0
+                        action = f"LEFT_BLOCKED: backing (front-left={min_front_left:.2f})"
+                else:
+                    twist.linear.x = -self.v_lin * 0.15
+                    twist.linear.y = 0.0
+                    twist.angular.z = 0.0
+                    action = "LEFT_BLOCKED: small backoff"
 
         #----------------------------------------------------------
         # RULE 2: FRONT-RIGHT obstacle -> move front-left
