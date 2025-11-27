@@ -224,19 +224,6 @@ class RobotSelfControlHolonomic(Node):
             else:
                 self.mode = "AVOID_LEFT"
 
-        # Side-aware holonomic rule:
-        # If the global closest obstacle is within the safety distance and lies clearly
-        # on one side (outside the frontal band), prefer to move to the opposite side.
-        # Example: closest_angle < 0 (right side) -> move left (AVOID_LEFT).
-        if closest < self.d_safe:
-            ca = normalize_deg(closest_angle)
-            # consider it a side obstacle if angle is outside the small frontal band
-            if abs(ca) > 15.0:
-                if ca < 0:
-                    self.mode = "AVOID_LEFT"
-                else:
-                    self.mode = "AVOID_RIGHT"
-
         # Compose cmd from mode, with forward scaling
         # forward_scale goes from 0 at d_limit to 1 at (d_safe) (linear)
         denom = max(1e-3, (self.d_safe - self.d_limit))

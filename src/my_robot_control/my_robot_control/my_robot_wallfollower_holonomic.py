@@ -17,6 +17,9 @@ class WallFollower(Node):
         self.declare_parameter('side_speed', 0.18)       # lateral speed for holonomic
         self.declare_parameter('side_kp', 0.8)          # lateral P gain for wall-centering
         self.declare_parameter('time_to_stop', 30.0)     # auto-stop
+        self.declare_parameter('back_time', 0.6)         # seconds to back when emergency
+        self.declare_parameter('left_hold_time', 0.8)    # seconds to avoid re-acquiring left wall after loss
+        self.declare_parameter('emergency_dist', 0.12)   # emergency backing threshold
         self.declare_parameter('tolerance', 0.05)        # band around base_distance (RIGHT)
 
         self.base_distance = float(self.get_parameter('distance_limit').value)
@@ -25,6 +28,9 @@ class WallFollower(Node):
         self.v_side = float(self.get_parameter('side_speed').value)
         self.side_kp = float(self.get_parameter('side_kp').value)
         self.time_to_stop = float(self.get_parameter('time_to_stop').value)
+        self.back_time = float(self.get_parameter('back_time').value)
+        self.left_hold_time = float(self.get_parameter('left_hold_time').value)
+        self.emergency_dist = float(self.get_parameter('emergency_dist').value)
         self.tol = float(self.get_parameter('tolerance').value)
 
         # Last commanded twist (will be published periodically)
@@ -48,6 +54,9 @@ class WallFollower(Node):
         self._shutting_down = False
 
         self.start_time_s = self.get_clock().now().nanoseconds * 1e-9
+        # state for left-wall hold and backing
+        self.left_last_seen_time = 0.0
+        self.backing_until = None
 
         self.get_logger().info(
             "WallFollower (RIGHT tol, BACK_RIGHT when closest) - differential drive."
@@ -103,6 +112,18 @@ class WallFollower(Node):
         if self._shutting_down:
             return
 
+        now = self.get_clock().now().nanoseconds * 1e-9
+
+        # if currently in backing state, continue backing until timeout
+        if self.backing_until and now < self.backing_until:
+            bt = Twist()
+            bt.linear.x = -self.v_lin * 0.5
+            bt.linear.y = 0.0
+            bt.angular.z = 0.0
+            self.cmd = bt
+            # do not change last action log here to avoid spam
+            return
+
         angle_min = math.degrees(scan.angle_min)
         angle_inc = math.degrees(scan.angle_increment)
 
@@ -150,18 +171,31 @@ class WallFollower(Node):
         min_left       = min(LEFT) if LEFT else float('inf')
         min_back_left  = min(BACK_LEFT) if BACK_LEFT else float('inf')
 
+        # update left-last-seen time
+        if math.isfinite(min_left):
+            self.left_last_seen_time = now
+
         twist = Twist()
         action = ""
 
-        # Safety emergency: if any sector is dangerously close, back straight
+        # Safety emergency: if any sector is dangerously close, back straight (timed)
         all_mins = [min_front, min_fr_right, min_right, min_back_right, min_back, min_fl_left, min_left, min_back_left]
         closest = min(all_mins)
-        EMERGENCY_DIST = 0.12
-        if closest < EMERGENCY_DIST:
+        if closest < self.emergency_dist:
+            # enter timed backing state
+            self.backing_until = now + self.back_time
             twist.linear.x = -self.v_lin * 0.5
             twist.linear.y = 0.0
             twist.angular.z = 0.0
             action = f"EMERGENCY BACK (closest {closest:.2f} m)"
+
+        # If we recently had a left wall but it just disappeared, avoid re-acquiring
+        # it immediately: drive forward with a slight right bias for a short time.
+        elif (not math.isfinite(min_left)) and (now - self.left_last_seen_time) < self.left_hold_time:
+            twist.linear.x = self.v_lin * 0.8
+            twist.linear.y = -self.v_side * 0.4
+            twist.angular.z = 0.0
+            action = f"RECENT_LEFT_LOSS -> avoid immediate reattach"
 
         #----------------------------------------------------------
         # RULE 1: FRONT obstacle -> move front-left (holonomic)
