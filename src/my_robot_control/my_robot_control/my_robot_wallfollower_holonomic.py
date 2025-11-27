@@ -229,6 +229,15 @@ class WallFollower(Node):
             twist.angular.z = 0.0
             action = f"FRONT-LEFT {closest_dist:.2f} m -> FORWARD-RIGHT"
 
+        # If no action was chosen above (e.g. all distances > base_distance),
+        # use a minimal fallback: move forward. This ensures the robot does
+        # not remain stopped with message "Stopped (no wall detected)".
+        if not action:
+            twist.linear.x = self.v_lin
+            twist.linear.y = 0.0
+            twist.angular.z = 0.0
+            action = "Fallback -> FORWARD"
+
         # Update last commanded twist (periodic timer will publish it)
         self.cmd = twist
 
