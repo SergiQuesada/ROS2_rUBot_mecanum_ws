@@ -11,13 +11,13 @@ class WallFollower(Node):
         super().__init__('wall_follower_node')
 
         # Parameters
-        self.declare_parameter('distance_limit', 0.5)    # desired distance to right wall
-        self.declare_parameter('forward_speed', 0.20)    # linear speed
+        self.declare_parameter('distance_limit', 0.5)    # desired distance to wall
+        self.declare_parameter('forward_speed', 0.20)    # linear speed (x)
         self.declare_parameter('turn_speed', 0.40)       # angular speed
-        self.declare_parameter('side_speed', 0.18)       # lateral speed for holonomic
-        self.declare_parameter('side_kp', 0.8)          # lateral P gain for wall-centering
+        self.declare_parameter('side_speed', 0.18)       # lateral speed (y)
+        self.declare_parameter('side_kp', 0.8)           # kept for compatibility
         self.declare_parameter('time_to_stop', 30.0)     # auto-stop
-        self.declare_parameter('tolerance', 0.05)        # band around base_distance (RIGHT)
+        self.declare_parameter('tolerance', 0.05)
 
         self.base_distance = float(self.get_parameter('distance_limit').value)
         self.v_lin = float(self.get_parameter('forward_speed').value)
@@ -50,13 +50,8 @@ class WallFollower(Node):
         self.start_time_s = self.get_clock().now().nanoseconds * 1e-9
 
         self.get_logger().info(
-            "WallFollower (RIGHT tol, BACK_RIGHT when closest) - differential drive."
+            "WallFollower holonómico siguiendo muros."
         )
-
-        # Minimal state for corner handling (see user request)
-        self.front_blocked = False
-        self.backing = False
-        self.left_blocked = False
 
     #--------------------------------------------------------------------
     def stop_watchdog(self):
@@ -76,11 +71,10 @@ class WallFollower(Node):
         # Set last command to zero
         self.cmd = Twist()
 
-        # Try a final publish (publisher may still be valid even if shutdown started)
+        # Try a final publish
         try:
             self.publisher.publish(self.cmd)
         except Exception:
-            # Context/publisher may already be invalid -> ignore
             pass
 
         # Cancel timers safely
@@ -99,7 +93,6 @@ class WallFollower(Node):
         try:
             self.publisher.publish(self.cmd)
         except Exception:
-            # If the context or publisher is invalid, ignore
             pass
 
     #--------------------------------------------------------------------
@@ -116,10 +109,9 @@ class WallFollower(Node):
         RIGHT       = []
         BACK_RIGHT  = []
         BACK        = []
-        BACK_LEFT   = []
-        LEFT        = []
         FRONT_LEFT  = []
-        
+        LEFT        = []
+
         for i, d in enumerate(scan.ranges):
             if not math.isfinite(d):
                 continue
@@ -128,6 +120,7 @@ class WallFollower(Node):
 
             ang = angle_min + i * angle_inc
 
+            # 0º delante, + a la izquierda, - a la derecha
             if -20 <= ang <= 20:
                 FRONT.append(d)
             elif -70 <= ang < -20:
@@ -138,167 +131,57 @@ class WallFollower(Node):
                 BACK_RIGHT.append(d)
             elif ang <= -160 or ang >= 160:
                 BACK.append(d)
-            elif 110 <= ang < 160:
-                BACK_LEFT.append(d)
-            elif 70 <= ang < 110:
-                LEFT.append(d)
-            elif 20 < ang < 70:
+            elif 20 < ang <= 70:
                 FRONT_LEFT.append(d)
+            elif 70 < ang <= 110:
+                LEFT.append(d)
 
         # Minimal distances
-        min_front      = min(FRONT)      if FRONT      else float('inf')
-        min_fr_right   = min(FR_RIGHT)   if FR_RIGHT   else float('inf')
-        min_right      = min(RIGHT)      if RIGHT      else float('inf')
-        min_back_right = min(BACK_RIGHT) if BACK_RIGHT else float('inf')
-        min_back       = min(BACK) if BACK else float('inf')
-        min_back_left  = min(BACK_LEFT) if BACK_LEFT else float('inf')
-        min_left       = min(LEFT) if LEFT else float('inf')
-        min_front_left = min(FRONT_LEFT) if FRONT_LEFT else float('inf')
+        min_front       = min(FRONT)      if FRONT      else float('inf')
+        min_fr_right    = min(FR_RIGHT)   if FR_RIGHT   else float('inf')
+        min_right       = min(RIGHT)      if RIGHT      else float('inf')
+        min_back_right  = min(BACK_RIGHT) if BACK_RIGHT else float('inf')
+        min_back        = min(BACK)       if BACK       else float('inf')
+        min_front_left  = min(FRONT_LEFT) if FRONT_LEFT else float('inf')
+        min_left        = min(LEFT)       if LEFT       else float('inf')
 
         twist = Twist()
         action = ""
 
-        # ------------------ Corner / front handling ------------------
-        # If something is in front, start a corner-handling state:
-        #  - when front detected -> strafe left and remember front_blocked
-        #  - while front_blocked: if left clears -> advance (forward-left)
-        #    otherwise back up until left clears; if back is blocked -> move right
+        # REGLA A: muro delante -> ir a la izquierda holonómicamente
         if min_front < self.base_distance:
-            # immediate front obstacle: move left and mark blocked
-            self.front_blocked = True
-            self.backing = False
-            twist.linear.x = self.v_lin * 0.25
-            twist.linear.y = +self.v_side
-            twist.angular.z = 0.0
-            action = f"FRONT {min_front:.2f} m -> STRAFE LEFT (start corner handling)"
-
-        elif self.front_blocked:
-            # we previously hit something in front; try to resolve
-            # if left side is free, try to go forward-left and clear the flag
-            if min_left > self.base_distance + self.tol:
-                twist.linear.x = self.v_lin * 0.5
-                twist.linear.y = +self.v_side
-                twist.angular.z = 0.0
-                action = (
-                    f"FRONT_BLOCKED: left cleared (left={min_left:.2f}) -> FORWARD-LEFT and resume"
-                )
-                self.front_blocked = False
-                self.backing = False
-
-            else:
-                # left still blocked / corner not cleared: if still blocked in front, back up
-                if min_front < self.base_distance:
-                    twist.linear.x = -self.v_lin * 0.25
-                    twist.linear.y = 0.0
-                    twist.angular.z = 0.0
-                    self.backing = True
-                    action = f"FRONT_BLOCKED: still front {min_front:.2f} -> BACKING"
-
-                # if we are backing and there's an obstacle behind, try to move right to escape
-                elif self.backing and min_back < self.base_distance:
-                    twist.linear.x = 0.0
-                    twist.linear.y = -self.v_side
-                    twist.angular.z = 0.0
-                    action = (
-                        f"FRONT_BLOCKED: back blocked {min_back:.2f} -> MOVE RIGHT to escape"
-                    )
-
-                else:
-                    # keep trying to slide left slowly while monitoring
-                    twist.linear.x = self.v_lin * 0.15
-                    twist.linear.y = +self.v_side
-                    twist.angular.z = 0.0
-                    action = "FRONT_BLOCKED: sliding LEFT while waiting for clearance"
-
-        # ------------------ LEFT collision handling ------------------
-        # If the robot detects the wall too close on the left side, back
-        # until front-left is clear and then strafe left to resume following.
-        elif min_left < self.base_distance and not self.left_blocked:
-            self.left_blocked = True
-            self.backing = True
-            # back and move RIGHT to increase clearance from left wall
-            twist.linear.x = -self.v_lin * 0.25
-            twist.linear.y = -self.v_side * 0.5
-            twist.angular.z = 0.0
-            action = f"LEFT too close ({min_left:.2f}) -> BACKING to clear front-left"
-
-        elif self.left_blocked:
-            # if front-left clears, strafe left and resume
-            if min_front_left > self.base_distance + self.tol:
-                twist.linear.x = self.v_lin * 0.4
-                twist.linear.y = +self.v_side
-                twist.angular.z = 0.0
-                action = (
-                    f"LEFT_BLOCKED cleared (front-left={min_front_left:.2f}) -> STRAFE LEFT and resume"
-                )
-                self.left_blocked = False
-                self.backing = False
-
-            else:
-                # keep backing unless back is blocked, in which case move right
-                if self.backing:
-                    if min_back < self.base_distance:
-                        # if back blocked, try sliding right in place to escape
-                        twist.linear.x = 0.0
-                        twist.linear.y = -self.v_side
-                        twist.angular.z = 0.0
-                        action = f"LEFT_BLOCKED: back blocked {min_back:.2f} -> MOVE RIGHT to escape"
-                    else:
-                        # continue backing-right (diagonal) to clear front-left
-                        twist.linear.x = -self.v_lin * 0.25
-                        twist.linear.y = -self.v_side * 0.5
-                        twist.angular.z = 0.0
-                        action = f"LEFT_BLOCKED: backing-right (front-left={min_front_left:.2f})"
-                else:
-                    twist.linear.x = -self.v_lin * 0.15
-                    twist.linear.y = 0.0
-                    twist.angular.z = 0.0
-                    action = "LEFT_BLOCKED: small backoff"
-
-        #----------------------------------------------------------
-        # RULE 2: FRONT-RIGHT obstacle -> move front-left
-        #----------------------------------------------------------
-        elif min_fr_right < self.base_distance:
-            twist.linear.x = self.v_lin * 0.25
-            twist.linear.y = +self.v_side
-            twist.angular.z = 0.0
-            action = f"FRONT-RIGHT {min_fr_right:.2f} m -> MOVE FRONT-LEFT"
-
-        #----------------------------------------------------------
-        # RULE 3: RIGHT visible -> move forward and maintain parallel (no angular)
-        #----------------------------------------------------------
-        elif math.isfinite(min_right):
-            # lateral correction vy = -kp * error (error = measured - desired)
-            error = min_right - self.base_distance
-            vy = -self.side_kp * error
-            # clamp lateral speed
-            vy = max(-self.v_side, min(self.v_side, vy))
-            twist.linear.x = self.v_lin
-            twist.linear.y = vy
-            twist.angular.z = 0.0
-            action = (
-                f"RIGHT {min_right:.2f} m -> FORWARD (vy={vy:.2f}) maintain parallel"
-            )
-
-        #----------------------------------------------------------
-        # RULE 4: BACK-RIGHT -> move front-right
-        #----------------------------------------------------------
-        elif math.isfinite(min_back_right) and (
-            not math.isfinite(min_right) or min_back_right <= min_right
-        ):
-            twist.linear.x = self.v_lin * 0.25
-            twist.linear.y = -self.v_side
-            twist.angular.z = 0.0
-            action = f"BACK-RIGHT {min_back_right:.2f} m -> MOVE FRONT-RIGHT"
-
-        #----------------------------------------------------------
-        # RULE 5: BACK -> strafe right
-        #----------------------------------------------------------
-        elif math.isfinite(min_back):
             twist.linear.x = 0.0
-            twist.linear.y = -self.v_side
+            twist.linear.y = +self.v_side      # +y = izquierda
             twist.angular.z = 0.0
-            action = f"BACK {min_back:.2f} m -> MOVE RIGHT"
+            action = f"FRONT {min_front:.2f} m -> STRAFE LEFT"
+
+        # REGLA B: muro en front-left o left -> retroceder mientras haya muro a la izquierda
+        elif min_front_left < self.base_distance or min_left < self.base_distance:
+            if min_back < self.base_distance:
+                # REGLA C: muro izquierda y detrás -> ir a la derecha (única salida)
+                twist.linear.x = 0.0
+                twist.linear.y = -self.v_side   # -y = derecha
+                twist.angular.z = 0.0
+                action = (
+                    f"LEFT {min_left:.2f} / FRONT-LEFT {min_front_left:.2f} m "
+                    f"y BACK {min_back:.2f} m -> STRAFE RIGHT"
+                )
+            else:
+                # Retroceder manteniendo muro a la izquierda
+                twist.linear.x = -self.v_lin
+                twist.linear.y = 0.0
+                twist.angular.z = 0.0
+                action = (
+                    f"LEFT {min_left:.2f} / FRONT-LEFT {min_front_left:.2f} m "
+                    f"-> MOVE BACKWARD"
+                )
+
+        # REGLA D: sin muros cercanos relevantes -> deriva suave hacia la izquierda
+        else:
+            twist.linear.x = 0.0
+            twist.linear.y = +self.v_side * 0.5
+            twist.angular.z = 0.0
+            action = "NO WALL NEARBY -> DRIFT LEFT"
 
         # Update last commanded twist (periodic timer will publish it)
         self.cmd = twist
@@ -315,6 +198,7 @@ class WallFollower(Node):
         if not self._shutting_down:
             self.get_logger().info(self._state_action)
 
+
 def main(args=None):
     rclpy.init(args=args)
     node = WallFollower()
@@ -330,6 +214,7 @@ def main(args=None):
 
         if rclpy.ok():
             rclpy.shutdown()
+
 
 if __name__ == '__main__':
     main()
