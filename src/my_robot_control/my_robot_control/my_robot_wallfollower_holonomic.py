@@ -15,6 +15,7 @@ class WallFollower(Node):
         self.declare_parameter('forward_speed', 0.20)    # velocidad en x
         self.declare_parameter('turn_speed', 0.40)       # vel. angular z
         self.declare_parameter('side_speed', 0.18)       # velocidad en y
+        self.declare_parameter('left_strafe_time', 1.0)  # tiempo en segundos para strafear izquierda antes de girar
         self.declare_parameter('time_to_stop', 120.0)    # auto-stop
         self.declare_parameter('tolerance', 0.05)
 
@@ -22,6 +23,7 @@ class WallFollower(Node):
         self.v_lin = float(self.get_parameter('forward_speed').value)
         self.v_ang = float(self.get_parameter('turn_speed').value)
         self.v_side = float(self.get_parameter('side_speed').value)
+        self.left_strafe_time = float(self.get_parameter('left_strafe_time').value)
         self.time_to_stop = float(self.get_parameter('time_to_stop').value)
         self.tol = float(self.get_parameter('tolerance').value)
 
@@ -49,6 +51,8 @@ class WallFollower(Node):
         self.state = "FORWARD_SEARCH"
         self.turn_start_time = None     # para controlar giro 180º con el reloj del nodo
         self.turn_duration = math.pi / self.v_ang  # tiempo para ~180º: ángulo/velocidad [web:16][web:47]
+        self.turn_duration_90 = (math.pi/2) / self.v_ang
+        self.follow_left_start = None
 
         self.get_logger().info("WallFollower holonómico con giro 180º en esquinas izquierda-atrás.")
 
@@ -131,6 +135,7 @@ class WallFollower(Node):
             # Avanza hasta encontrar un muro delante
             if min_front < self.base_distance:
                 self.state = "FOLLOW_LEFT"
+                self.follow_left_start = now
                 twist.linear.x = 0.0
                 twist.linear.y = +self.v_side
                 action = f"FOUND FRONT WALL {min_front:.2f} -> FOLLOW_LEFT (STRAFE LEFT)"
@@ -140,42 +145,35 @@ class WallFollower(Node):
                 action = f"FORWARD_SEARCH -> MOVE FORWARD (front={min_front:.2f})"
 
         elif self.state == "FOLLOW_LEFT":
-            # If front is cleared, resume moving forward (don't keep strafing left)
-            if min_front >= self.base_distance:
-                self.state = "FORWARD_SEARCH"
-                twist.linear.x = self.v_lin
-                twist.linear.y = 0.0
-                action = f"FOLLOW_LEFT: front cleared (front={min_front:.2f}) -> MOVE FORWARD"
-            # Muro muy cerca a la izquierda o frontal-izquierda
-            elif min_left < self.base_distance or min_front_left < self.base_distance:
-                if min_back < self.base_distance:
-                    # Esquina detrás-izquierda: pasar a girar 180º en el sitio
-                    self.state = "TURN_AROUND"
+            # If we just entered FOLLOW_LEFT, start the strafe timer
+            if self.follow_left_start is None:
+                self.follow_left_start = now
+
+            elapsed = now - self.follow_left_start
+            # Strafe left for configured time
+            if elapsed < self.left_strafe_time:
+                twist.linear.x = 0.0
+                twist.linear.y = +self.v_side
+                action = f"FOLLOW_LEFT (strafing) {elapsed:.2f}s/{self.left_strafe_time:.2f}s"
+            else:
+                # after the strafe period, check front again
+                if min_front < self.base_distance:
+                    # still blocked -> rotate 90 deg left
+                    self.state = "TURN_90"
                     self.turn_start_time = now
                     twist.linear.x = 0.0
                     twist.linear.y = 0.0
-                    twist.angular.z = +self.v_ang  # giro antihorario [web:16][web:46]
+                    twist.angular.z = +self.v_ang
                     action = (
-                        f"CORNER BACK+LEFT: LEFT {min_left:.2f}, BACK {min_back:.2f} "
-                        f"-> TURN_AROUND (start)"
+                        f"FOLLOW_LEFT elapsed and FRONT still blocked ({min_front:.2f}) -> TURN_90"
                     )
                 else:
-                    # Solo muro izquierda/frontal-izq: retroceder
-                    self.state = "BACK_FROM_LEFT"
-                    twist.linear.x = -self.v_lin
+                    # front cleared -> resume forward search
+                    self.state = "FORWARD_SEARCH"
+                    self.follow_left_start = None
+                    twist.linear.x = self.v_lin
                     twist.linear.y = 0.0
-                    action = (
-                        f"LEFT {min_left:.2f} / FRONT_LEFT {min_front_left:.2f} "
-                        f"-> BACK_FROM_LEFT (MOVE BACKWARD)"
-                    )
-            else:
-                # Seguir bordeando hacia la izquierda
-                twist.linear.x = 0.0
-                twist.linear.y = +self.v_side
-                action = (
-                    f"FOLLOW_LEFT: front={min_front:.2f}, left={min_left:.2f} "
-                    f"-> STRAFE LEFT"
-                )
+                    action = f"FOLLOW_LEFT elapsed and front cleared -> FORWARD_SEARCH"
 
         elif self.state == "BACK_FROM_LEFT":
             # Mientras siga habiendo muro a la izquierda/diagonal, retrocede
@@ -227,6 +225,27 @@ class WallFollower(Node):
                 twist.linear.y = +self.v_side
                 twist.angular.z = 0.0
                 action = "TURN_AROUND done -> FOLLOW_LEFT (STRAFE LEFT)"
+
+        elif self.state == "TURN_90":
+            # Rotate ~90 degrees left
+            if self.turn_start_time is None:
+                self.turn_start_time = now
+
+            elapsed = now - self.turn_start_time
+            if elapsed < self.turn_duration_90:
+                twist.linear.x = 0.0
+                twist.linear.y = 0.0
+                twist.angular.z = +self.v_ang
+                action = f"TURN_90: rotating 90deg (elapsed={elapsed:.2f}/{self.turn_duration_90:.2f}s)"
+            else:
+                # Done -> resume forward search
+                self.state = "FORWARD_SEARCH"
+                self.turn_start_time = None
+                self.follow_left_start = None
+                twist.linear.x = self.v_lin
+                twist.linear.y = 0.0
+                twist.angular.z = 0.0
+                action = "TURN_90 done -> FORWARD_SEARCH"
 
         else:
             self.state = "FORWARD_SEARCH"
