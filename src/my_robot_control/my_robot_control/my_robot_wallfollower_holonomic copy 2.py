@@ -18,7 +18,6 @@ class WallFollower(Node):
         self.declare_parameter('side_kp', 0.8)          # ganancia P para corrección lateral
         self.declare_parameter('left_strafe_time', 3.0)  # tiempo en segundos para strafear izquierda antes de girar
         self.declare_parameter('post_clear_strafe', 1.0)  # seconds to keep strafing left after front clears
-        self.declare_parameter('post_strafe_forward', 1.5)  # seconds to move forward after clearing
         self.declare_parameter('time_to_stop', 120.0)    # auto-stop
         self.declare_parameter('tolerance', 0.05)
 
@@ -29,7 +28,6 @@ class WallFollower(Node):
         self.side_kp = float(self.get_parameter('side_kp').value)
         self.left_strafe_time = float(self.get_parameter('left_strafe_time').value)
         self.post_clear_strafe = float(self.get_parameter('post_clear_strafe').value)
-        self.post_strafe_forward = float(self.get_parameter('post_strafe_forward').value)
         self.time_to_stop = float(self.get_parameter('time_to_stop').value)
         self.tol = float(self.get_parameter('tolerance').value)
 
@@ -60,7 +58,6 @@ class WallFollower(Node):
         self.turn_duration_90 = (math.pi/2) / self.v_ang
         self.follow_left_start = None
         self.follow_left_continue_until = None
-        self.post_strafe_forward_until = None
 
         self.get_logger().info("WallFollower holonómico con giro 180º en esquinas izquierda-atrás.")
 
@@ -187,15 +184,13 @@ class WallFollower(Node):
                 twist.linear.y = +self.v_side
                 action = f"FOLLOW_LEFT (strafing) {elapsed:.2f}s/{self.left_strafe_time:.2f}s"
 
-            # If front cleared during strafing, start post-strafe-forward state
+            # If front cleared during strafing, start continue-until timer
             elif min_front >= self.base_distance and self.follow_left_continue_until is None:
-                # move forward for a short time to avoid wheel grazing, then resume normal
-                self.state = "POST_STRAFE_FORWARD"
-                self.post_strafe_forward_until = now + self.post_strafe_forward
-                twist.linear.x = self.v_lin
-                twist.linear.y = 0.0
+                self.follow_left_continue_until = now + self.post_clear_strafe
+                twist.linear.x = 0.0
+                twist.linear.y = +self.v_side
                 action = (
-                    f"FOLLOW_LEFT: front cleared -> POST_STRAFE_FORWARD for {self.post_strafe_forward:.2f}s"
+                    f"FOLLOW_LEFT: front cleared -> continue strafing until {self.post_clear_strafe:.2f}s more"
                 )
 
             # If continue-until active, keep strafing until timeout
@@ -301,20 +296,6 @@ class WallFollower(Node):
                 twist.linear.y = 0.0
                 twist.angular.z = 0.0
                 action = "TURN_90 done -> FORWARD_SEARCH"
-
-        elif self.state == "POST_STRAFE_FORWARD":
-            # Move forward for the configured duration, then resume normal search
-            if self.post_strafe_forward_until is not None and now < self.post_strafe_forward_until:
-                twist.linear.x = self.v_lin
-                twist.linear.y = 0.0
-                action = f"POST_STRAFE_FORWARD: moving forward for {(self.post_strafe_forward_until-now):.2f}s"
-            else:
-                # finished -> resume forward search
-                self.post_strafe_forward_until = None
-                self.state = "FORWARD_SEARCH"
-                twist.linear.x = self.v_lin
-                twist.linear.y = 0.0
-                action = "POST_STRAFE_FORWARD done -> FORWARD_SEARCH"
 
         elif self.state == "FOLLOW_RIGHT":
             # follow the right wall: forward + lateral correction to maintain distance
