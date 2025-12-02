@@ -140,14 +140,8 @@ class WallFollower(Node):
                 action = f"FORWARD_SEARCH -> MOVE FORWARD (front={min_front:.2f})"
 
         elif self.state == "FOLLOW_LEFT":
-            # If front is cleared, resume moving forward (don't keep strafing left)
-            if min_front >= self.base_distance:
-                self.state = "FORWARD_SEARCH"
-                twist.linear.x = self.v_lin
-                twist.linear.y = 0.0
-                action = f"FOLLOW_LEFT: front cleared (front={min_front:.2f}) -> MOVE FORWARD"
             # Muro muy cerca a la izquierda o frontal-izquierda
-            elif min_left < self.base_distance or min_front_left < self.base_distance:
+            if min_left < self.base_distance or min_front_left < self.base_distance:
                 if min_back < self.base_distance:
                     # Esquina detrás-izquierda: pasar a girar 180º en el sitio
                     self.state = "TURN_AROUND"
