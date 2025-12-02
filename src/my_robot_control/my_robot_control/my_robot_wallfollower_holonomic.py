@@ -15,7 +15,8 @@ class WallFollower(Node):
         self.declare_parameter('forward_speed', 0.20)    # velocidad en x
         self.declare_parameter('turn_speed', 0.40)       # vel. angular z
         self.declare_parameter('side_speed', 0.18)       # velocidad en y
-        self.declare_parameter('left_strafe_time', 1.0)  # tiempo en segundos para strafear izquierda antes de girar
+        self.declare_parameter('side_kp', 0.8)          # ganancia P para corrección lateral
+        self.declare_parameter('left_strafe_time', 3.0)  # tiempo en segundos para strafear izquierda antes de girar
         self.declare_parameter('time_to_stop', 120.0)    # auto-stop
         self.declare_parameter('tolerance', 0.05)
 
@@ -23,6 +24,7 @@ class WallFollower(Node):
         self.v_lin = float(self.get_parameter('forward_speed').value)
         self.v_ang = float(self.get_parameter('turn_speed').value)
         self.v_side = float(self.get_parameter('side_speed').value)
+        self.side_kp = float(self.get_parameter('side_kp').value)
         self.left_strafe_time = float(self.get_parameter('left_strafe_time').value)
         self.time_to_stop = float(self.get_parameter('time_to_stop').value)
         self.tol = float(self.get_parameter('tolerance').value)
@@ -98,7 +100,10 @@ class WallFollower(Node):
 
         FRONT = []
         FRONT_LEFT = []
+        FRONT_RIGHT = []
+        RIGHT = []
         LEFT = []
+        BACK_RIGHT = []
         BACK = []
 
         for i, d in enumerate(scan.ranges):
@@ -114,14 +119,23 @@ class WallFollower(Node):
                 FRONT.append(d)
             elif 20 < ang <= 70:
                 FRONT_LEFT.append(d)
+            elif -70 <= ang < -20:
+                FRONT_RIGHT.append(d)
+            elif -110 <= ang < -70:
+                RIGHT.append(d)
             elif 70 < ang <= 110:
                 LEFT.append(d)
+            elif -160 <= ang < -110:
+                BACK_RIGHT.append(d)
             elif ang <= -160 or ang >= 160:
                 BACK.append(d)
 
         min_front = min(FRONT) if FRONT else float('inf')
         min_front_left = min(FRONT_LEFT) if FRONT_LEFT else float('inf')
+        min_front_right = min(FRONT_RIGHT) if FRONT_RIGHT else float('inf')
+        min_right = min(RIGHT) if RIGHT else float('inf')
         min_left = min(LEFT) if LEFT else float('inf')
+        min_back_right = min(BACK_RIGHT) if BACK_RIGHT else float('inf')
         min_back = min(BACK) if BACK else float('inf')
 
         twist = Twist()
@@ -133,16 +147,25 @@ class WallFollower(Node):
 
         if self.state == "FORWARD_SEARCH":
             # Avanza hasta encontrar un muro delante
+            # maintain distance to the right by lateral correction
+            if math.isfinite(min_right):
+                error = min_right - self.base_distance
+                vy = -self.side_kp * error
+                vy = max(-self.v_side, min(self.v_side, vy))
+            else:
+                vy = 0.0
+
+            twist.linear.x = self.v_lin
+            twist.linear.y = vy
+            action = f"FORWARD_SEARCH -> FORWARD (front={min_front:.2f}, right={min_right:.2f}, vy={vy:.2f})"
+
+            # if something appears in front, start left holonomic maneuver
             if min_front < self.base_distance:
                 self.state = "FOLLOW_LEFT"
                 self.follow_left_start = now
                 twist.linear.x = 0.0
                 twist.linear.y = +self.v_side
                 action = f"FOUND FRONT WALL {min_front:.2f} -> FOLLOW_LEFT (STRAFE LEFT)"
-            else:
-                twist.linear.x = self.v_lin
-                twist.linear.y = 0.0
-                action = f"FORWARD_SEARCH -> MOVE FORWARD (front={min_front:.2f})"
 
         elif self.state == "FOLLOW_LEFT":
             # If we just entered FOLLOW_LEFT, start the strafe timer
@@ -150,15 +173,16 @@ class WallFollower(Node):
                 self.follow_left_start = now
 
             elapsed = now - self.follow_left_start
-            # Strafe left for configured time
-            if elapsed < self.left_strafe_time:
+            # Strafe left for configured time or until front clears
+            if elapsed < self.left_strafe_time and min_front < self.base_distance:
                 twist.linear.x = 0.0
                 twist.linear.y = +self.v_side
                 action = f"FOLLOW_LEFT (strafing) {elapsed:.2f}s/{self.left_strafe_time:.2f}s"
             else:
-                # after the strafe period, check front again
+                # after the strafe period or front cleared, decide next action
+                self.follow_left_start = None
+                # if front still blocked -> rotate 90 deg left
                 if min_front < self.base_distance:
-                    # still blocked -> rotate 90 deg left
                     self.state = "TURN_90"
                     self.turn_start_time = now
                     twist.linear.x = 0.0
@@ -168,12 +192,14 @@ class WallFollower(Node):
                         f"FOLLOW_LEFT elapsed and FRONT still blocked ({min_front:.2f}) -> TURN_90"
                     )
                 else:
-                    # front cleared -> resume forward search
-                    self.state = "FORWARD_SEARCH"
-                    self.follow_left_start = None
-                    twist.linear.x = self.v_lin
-                    twist.linear.y = 0.0
-                    action = f"FOLLOW_LEFT elapsed and front cleared -> FORWARD_SEARCH"
+                    # choose direction based on nearer feature: right or front
+                    if min_right < min_front:
+                        self.state = "FOLLOW_RIGHT"
+                        action = f"FOLLOW_LEFT done -> FOLLOW_RIGHT (right {min_right:.2f} < front {min_front:.2f})"
+                        # will set vy/forward in FOLLOW_RIGHT handler
+                    else:
+                        self.state = "FORWARD_SEARCH"
+                        action = f"FOLLOW_LEFT done -> FORWARD_SEARCH (front {min_front:.2f} <= right {min_right:.2f})"
 
         elif self.state == "BACK_FROM_LEFT":
             # Mientras siga habiendo muro a la izquierda/diagonal, retrocede
@@ -246,6 +272,28 @@ class WallFollower(Node):
                 twist.linear.y = 0.0
                 twist.angular.z = 0.0
                 action = "TURN_90 done -> FORWARD_SEARCH"
+
+        elif self.state == "FOLLOW_RIGHT":
+            # follow the right wall: forward + lateral correction to maintain distance
+            if math.isfinite(min_right):
+                error = min_right - self.base_distance
+                vy = -self.side_kp * error
+                vy = max(-self.v_side, min(self.v_side, vy))
+            else:
+                vy = 0.0
+
+            twist.linear.x = self.v_lin
+            twist.linear.y = vy
+            twist.angular.z = 0.0
+            action = f"FOLLOW_RIGHT -> FORWARD (right={min_right:.2f}, vy={vy:.2f})"
+
+            # if an obstacle appears in front while following right, start left maneuver
+            if min_front < self.base_distance:
+                self.state = "FOLLOW_LEFT"
+                self.follow_left_start = now
+                twist.linear.x = 0.0
+                twist.linear.y = +self.v_side
+                action = f"FOLLOW_RIGHT found front {min_front:.2f} -> FOLLOW_LEFT"
 
         else:
             self.state = "FORWARD_SEARCH"
