@@ -17,6 +17,7 @@ class WallFollower(Node):
         self.declare_parameter('side_speed', 0.1)       # velocidad en y
         self.declare_parameter('side_kp', 0.8)          # ganancia P para corrección lateral
         self.declare_parameter('left_strafe_time', 3.0)  # tiempo en segundos para strafear izquierda antes de girar
+        self.declare_parameter('post_clear_strafe', 1.0)  # seconds to keep strafing left after front clears
         self.declare_parameter('time_to_stop', 120.0)    # auto-stop
         self.declare_parameter('tolerance', 0.05)
 
@@ -26,6 +27,7 @@ class WallFollower(Node):
         self.v_side = float(self.get_parameter('side_speed').value)
         self.side_kp = float(self.get_parameter('side_kp').value)
         self.left_strafe_time = float(self.get_parameter('left_strafe_time').value)
+        self.post_clear_strafe = float(self.get_parameter('post_clear_strafe').value)
         self.time_to_stop = float(self.get_parameter('time_to_stop').value)
         self.tol = float(self.get_parameter('tolerance').value)
 
@@ -55,6 +57,7 @@ class WallFollower(Node):
         self.turn_duration = math.pi / self.v_ang  # tiempo para ~180º: ángulo/velocidad [web:16][web:47]
         self.turn_duration_90 = (math.pi/2) / self.v_ang
         self.follow_left_start = None
+        self.follow_left_continue_until = None
 
         self.get_logger().info("WallFollower holonómico con giro 180º en esquinas izquierda-atrás.")
 
@@ -171,17 +174,38 @@ class WallFollower(Node):
             # If we just entered FOLLOW_LEFT, start the strafe timer
             if self.follow_left_start is None:
                 self.follow_left_start = now
+                self.follow_left_continue_until = None
 
             elapsed = now - self.follow_left_start
-            # Strafe left for configured time or until front clears
-            if elapsed < self.left_strafe_time and min_front < self.base_distance:
+
+            # If front still blocked and we haven't exhausted the initial strafe time -> keep strafing
+            if min_front < self.base_distance and elapsed < self.left_strafe_time:
                 twist.linear.x = 0.0
                 twist.linear.y = +self.v_side
                 action = f"FOLLOW_LEFT (strafing) {elapsed:.2f}s/{self.left_strafe_time:.2f}s"
+
+            # If front cleared during strafing, start continue-until timer
+            elif min_front >= self.base_distance and self.follow_left_continue_until is None:
+                self.follow_left_continue_until = now + self.post_clear_strafe
+                twist.linear.x = 0.0
+                twist.linear.y = +self.v_side
+                action = (
+                    f"FOLLOW_LEFT: front cleared -> continue strafing until {self.post_clear_strafe:.2f}s more"
+                )
+
+            # If continue-until active, keep strafing until timeout
+            elif self.follow_left_continue_until is not None and now < self.follow_left_continue_until:
+                twist.linear.x = 0.0
+                twist.linear.y = +self.v_side
+                remaining = self.follow_left_continue_until - now
+                action = f"FOLLOW_LEFT: continuing strafing for {remaining:.2f}s"
+
             else:
-                # after the strafe period or front cleared, decide next action
+                # clear timers/state and decide next action
                 self.follow_left_start = None
-                # if front still blocked -> rotate 90 deg left
+                self.follow_left_continue_until = None
+
+                # if front still blocked (we exhausted initial strafe) -> rotate 90 deg left
                 if min_front < self.base_distance:
                     self.state = "TURN_90"
                     self.turn_start_time = now
@@ -191,12 +215,12 @@ class WallFollower(Node):
                     action = (
                         f"FOLLOW_LEFT elapsed and FRONT still blocked ({min_front:.2f}) -> TURN_90"
                     )
+
                 else:
                     # choose direction based on nearer feature: right or front
                     if min_right < min_front:
                         self.state = "FOLLOW_RIGHT"
                         action = f"FOLLOW_LEFT done -> FOLLOW_RIGHT (right {min_right:.2f} < front {min_front:.2f})"
-                        # will set vy/forward in FOLLOW_RIGHT handler
                     else:
                         self.state = "FORWARD_SEARCH"
                         action = f"FOLLOW_LEFT done -> FORWARD_SEARCH (front {min_front:.2f} <= right {min_right:.2f})"
