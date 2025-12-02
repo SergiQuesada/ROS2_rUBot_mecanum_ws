@@ -14,7 +14,7 @@ class WallFollower(Node):
         self.declare_parameter('distance_limit', 0.5)    # distancia deseada a muro
         self.declare_parameter('forward_speed', 0.20)    # velocidad en x
         self.declare_parameter('turn_speed', 0.40)       # vel. angular z
-        self.declare_parameter('side_speed', 0.18)       # velocidad en y
+        self.declare_parameter('side_speed', 0.1)       # velocidad en y
         self.declare_parameter('side_kp', 0.8)          # ganancia P para corrección lateral
         self.declare_parameter('left_strafe_time', 3.0)  # tiempo en segundos para strafear izquierda antes de girar
         self.declare_parameter('time_to_stop', 120.0)    # auto-stop
