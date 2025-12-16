@@ -3,7 +3,7 @@
     <!-- ========================
          Launch Arguments
          ======================== -->
-    <arg name="distance_limit"  default="0.3" />
+    <arg name="distance_limit"  default="0.4" />
     <arg name="tolerance"       default="0.05" />
     <arg name="forward_speed"   default="0.1" />
     <arg name="turn_speed"      default="0.35" />
